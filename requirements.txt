@@ -1,0 +1,15 @@
+# BSE UDP Market Data Reader - Phase 1 Requirements
+# All packages are Python standard library (no external dependencies for Phase 1)
+
+# Core functionality (standard library)
+# - socket: UDP multicast connection
+# - struct: Binary data parsing (big-endian/little-endian)
+# - json: Configuration and data export
+# - csv: Data export
+# - datetime: Timestamps
+# - logging: Application logging
+
+# Future phases may require:
+# - requests (for BOLTPLUS API)
+# - pandas (for data processing)
+# - asyncio (for async operations)

@@ -1,0 +1,28 @@
+{
+  "multicast": {
+    "ip": "226.1.0.1",
+    "port": 11401,
+    "segment": "Equity",
+    "env": "simulation"
+  },
+  "production": {
+    "ip": "227.0.0.21",
+    "port": 12996,
+    "segment": "Equity",
+    "env": "production"
+  },
+  "buffer_size": 2000,
+  "logging_level": "INFO",
+  "timeout": 30,
+  "store_limit": 100,
+  "comments": [
+    "Default configuration uses simulation/test environment for safety",
+    "Simulation Equity NFCAST: 226.1.0.1:11401",
+    "Production Equity NFCAST: 227.0.0.21:12996",
+    "Buffer size: 2000 bytes as recommended by BSE",
+    "IGMPv2 multicast protocol required",
+    "store_limit: Maximum number of packets to store (default: 100)",
+    "timeout: Socket timeout in seconds (default: 30)",
+    "BSE Market Hours: 9:00 AM - 3:30 PM IST (Mon-Fri)"
+  ]
+}
