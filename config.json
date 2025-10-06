@@ -1,26 +1,34 @@
 {
   "multicast": {
+    "ip": "239.1.2.5",
+    "port": 26002,
+    "segment": "Equity",
+    "env": "production"
+  },
+  "simulation": {
     "ip": "226.1.0.1",
     "port": 11401,
     "segment": "Equity",
     "env": "simulation"
   },
-  "production": {
+  "alternate_production": {
     "ip": "227.0.0.21",
     "port": 12996,
     "segment": "Equity",
     "env": "production"
   },
-  "buffer_size": 2000,
+  "buffer_size": 2048,
   "logging_level": "INFO",
   "timeout": 30,
   "store_limit": 100,
   "comments": [
-    "Default configuration uses simulation/test environment for safety",
-    "Simulation Equity NFCAST: 226.1.0.1:11401",
-    "Production Equity NFCAST: 227.0.0.21:12996",
-    "Buffer size: 2000 bytes as recommended by BSE",
+    "UPDATED: Using BSE NFCAST production multicast: 239.1.2.5:26002",
+    "This is the primary BSE NFCAST feed from the manual",
+    "Alternate production: 227.0.0.21:12996",
+    "Simulation/test: 226.1.0.1:11401",
+    "Buffer size: 2048 bytes (updated from 2000 for better packet capture)",
     "IGMPv2 multicast protocol required",
+    "Message types: 2020 (Market Picture) and 2021 (Market Picture Complex)",
     "store_limit: Maximum number of packets to store (default: 100)",
     "timeout: Socket timeout in seconds (default: 30)",
     "BSE Market Hours: 9:00 AM - 3:30 PM IST (Mon-Fri)"

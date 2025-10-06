@@ -1,0 +1,13 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+*.pyc
+/out/
+/.idea_modules/
+/usage.statistics.xml
+/tasks.xml
+
+# pyc files
+*.py[cod]
+*__pycache__/
+src\__pycache__\*

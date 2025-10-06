@@ -135,9 +135,15 @@ class BSEMulticastConnection:
                 self.buffer_size
             )
             
+            # Step 6: Set socket timeout to allow Ctrl+C to work
+            # Timeout of 1 second allows checking for shutdown signals
+            logger.info("Setting socket timeout to 1 second...")
+            self.socket.settimeout(1.0)
+            
             logger.info(f"✓ Successfully connected to BSE NFCAST: {self.multicast_ip}:{self.port}")
             logger.info(f"✓ Multicast group joined using IGMPv2 protocol")
             logger.info(f"✓ Ready to receive market data packets (buffer: {self.buffer_size} bytes)")
+            logger.info(f"✓ Socket timeout: 1.0 seconds (allows graceful shutdown)")
             
             return self.socket
             

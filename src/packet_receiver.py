@@ -67,14 +67,15 @@ class PacketReceiver:
     # Packet format identifiers (Big-Endian at offset 4-5)
     FORMAT_300B = 0x0124  # 300-byte format
     FORMAT_556B = 0x022C  # 556-byte format
+    FORMAT_828B = 0x033C  # 828-byte format (PRODUCTION BSE FEED)
     
     # Expected packet sizes
-    VALID_PACKET_SIZES = [300, 556]
+    VALID_PACKET_SIZES = [300, 556, 828]  # Added 828 bytes for production feed
     
     # Header constants
     HEADER_SIZE = 36
     RECORD_SIZE = 64
-    RECORD_OFFSETS = [36, 100, 164, 228, 292, 356]  # Up to 6 instruments per packet
+    RECORD_OFFSETS = [36, 100, 164, 228, 292, 356]  # Up to 6 instruments per packet (may need expansion for 828B)
     
     def __init__(self, sock: socket.socket, config: dict, token_map: Dict[str, dict]):
         """
@@ -150,6 +151,13 @@ class PacketReceiver:
         logger.info("Starting packet reception loop...")
         logger.info("BSE Market Hours: 9:00 AM - 3:30 PM IST (Mon-Fri)")
         logger.info("Press Ctrl+C to stop")
+        logger.info("")
+        logger.info("ℹ️  Waiting for packets from BSE multicast feed...")
+        logger.info("ℹ️  If outside market hours or on test feed, you may not receive packets")
+        logger.info("ℹ️  Socket timeout is 1 second (this allows Ctrl+C to work)")
+        logger.info("")
+        
+        timeout_counter = 0  # Counter to log status periodically
         
         try:
             while True:
@@ -160,8 +168,11 @@ class PacketReceiver:
                 
                 try:
                     # Receive packet (2000-byte buffer as per BSE specification)
-                    # Timeout is set on the socket from configuration
+                    # Socket has 1-second timeout to allow Ctrl+C to work
                     packet, addr = self.socket.recvfrom(2000)
+                    
+                    # Reset timeout counter when packet received
+                    timeout_counter = 0
                     
                     self.stats['packets_received'] += 1
                     self.stats['bytes_received'] += len(packet)
@@ -169,10 +180,10 @@ class PacketReceiver:
                     # Log every 10th packet to avoid flooding logs
                     if self.stats['packets_received'] % 10 == 0:
                         logger.info(
-                            f"Packets received: {self.stats['packets_received']}, "
+                            f"📦 Packets received: {self.stats['packets_received']}, "
                             f"Valid: {self.stats['packets_valid']}, "
-                            f"2020: {self.stats['packets_2020']}, "
-                            f"2021: {self.stats['packets_2021']}"
+                            f"Type 2020: {self.stats['packets_2020']}, "
+                            f"Type 2021: {self.stats['packets_2021']}"
                         )
                     
                     # Process the packet
@@ -180,11 +191,21 @@ class PacketReceiver:
                 
                 except socket.timeout:
                     # Timeout waiting for packet - this is normal
-                    logger.debug("Socket timeout - waiting for packets...")
-                    logger.info(
-                        f"No packets received for {self.config.get('timeout', 30)}s. "
-                        "Check: Market hours (9AM-3:30PM IST), network connectivity, IGMPv2 enabled"
-                    )
+                    # Socket has 1-second timeout to allow Ctrl+C to work
+                    # Log status every 30 seconds (30 timeouts)
+                    timeout_counter += 1
+                    if timeout_counter >= 30:
+                        logger.info(
+                            f"⏱️  Still waiting for packets... ({self.stats['packets_received']} received so far)"
+                        )
+                        if self.stats['packets_received'] == 0:
+                            logger.info(
+                                "   💡 Tip: Check if BSE market is open (9:00 AM - 3:30 PM IST, Mon-Fri)"
+                            )
+                            logger.info(
+                                "   💡 Tip: Simulation feed may not have live data"
+                            )
+                        timeout_counter = 0
                     continue
                 
                 except socket.error as e:
@@ -221,6 +242,7 @@ class PacketReceiver:
             addr: Source address tuple (ip, port)
         """
         # Validate packet
+        # print("Validating packet...", packet, addr)
         if not self._validate_packet(packet):
             self.stats['packets_invalid'] += 1
             return
@@ -235,7 +257,9 @@ class PacketReceiver:
             self.stats['packets_2021'] += 1
         else:
             self.stats['packets_other'] += 1
-            logger.debug(f"Ignoring packet with message type: {msg_type}")
+            # Log first few non-2020/2021 packets to see what we're getting
+            if self.stats['packets_other'] <= 5:
+                logger.warning(f"Ignoring packet with message type: {msg_type} (0x{msg_type:04X})")
             return
         
         self.stats['packets_valid'] += 1
@@ -318,6 +342,40 @@ class PacketReceiver:
         Returns:
             True if packet is valid, False otherwise
         """
+        # Track validation failures for first 5 packets
+        if self.stats['packets_received'] <= 5:
+            
+            # Check minimum size
+            if len(packet) < self.HEADER_SIZE:
+                logger.warning(f"❌ VALIDATION FAILED: Packet too small: {len(packet)} bytes (need at least {self.HEADER_SIZE})")
+                return False
+            
+            # Check expected size (300 or 556 bytes)
+            if len(packet) not in self.VALID_PACKET_SIZES:
+                logger.warning(f"❌ VALIDATION FAILED: Unexpected packet size: {len(packet)} bytes (expected 300 or 556)")
+                logger.warning(f"   First 20 bytes (hex): {packet[:20].hex()}")
+                return False
+            
+            # Check leading zeros (offset 0-3 should be 0x00000000)
+            # This is a key identifier from BSE_Final_Analysis_Report.md
+            leading_bytes = packet[0:4]
+            if leading_bytes != b'\x00\x00\x00\x00':
+                logger.warning(f"❌ VALIDATION FAILED: Invalid leading bytes: {leading_bytes.hex()} (expected 00000000)")
+                logger.warning(f"   First 20 bytes (hex): {packet[:20].hex()}")
+                return False
+            
+            # Check format ID (offset 4-5, Big-Endian)
+            format_id = struct.unpack('>H', packet[4:6])[0]
+            if format_id not in [self.FORMAT_300B, self.FORMAT_556B, self.FORMAT_828B]:
+                logger.warning(f"❌ VALIDATION FAILED: Unknown format ID: 0x{format_id:04X}")
+                logger.warning(f"   First 20 bytes (hex): {packet[:20].hex()}")
+                return False
+            
+            # If we got here, packet is valid!
+            logger.info(f"✅ VALIDATION PASSED: Size={len(packet)}, FormatID=0x{format_id:04X}")
+            return True
+        
+        # For packets after the first 5, use quiet validation
         # Check minimum size
         if len(packet) < self.HEADER_SIZE:
             logger.debug(f"Packet too small: {len(packet)} bytes (need at least {self.HEADER_SIZE})")
@@ -325,20 +383,17 @@ class PacketReceiver:
         
         # Check expected size (300 or 556 bytes)
         if len(packet) not in self.VALID_PACKET_SIZES:
-            logger.debug(f"Unexpected packet size: {len(packet)} bytes (expected 300 or 556)")
             return False
         
         # Check leading zeros (offset 0-3 should be 0x00000000)
         # This is a key identifier from BSE_Final_Analysis_Report.md
         leading_bytes = packet[0:4]
         if leading_bytes != b'\x00\x00\x00\x00':
-            logger.debug(f"Invalid leading bytes: {leading_bytes.hex()} (expected 00000000)")
             return False
         
         # Check format ID (offset 4-5, Big-Endian)
         format_id = struct.unpack('>H', packet[4:6])[0]
-        if format_id not in [self.FORMAT_300B, self.FORMAT_556B]:
-            logger.debug(f"Unknown format ID: 0x{format_id:04X}")
+        if format_id not in [self.FORMAT_300B, self.FORMAT_556B, self.FORMAT_828B]:
             return False
         
         return True
