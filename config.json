@@ -5,18 +5,6 @@
     "segment": "Equity",
     "env": "production"
   },
-  "simulation": {
-    "ip": "226.1.0.1",
-    "port": 11401,
-    "segment": "Equity",
-    "env": "simulation"
-  },
-  "alternate_production": {
-    "ip": "227.0.0.21",
-    "port": 12996,
-    "segment": "Equity",
-    "env": "production"
-  },
   "buffer_size": 2048,
   "logging_level": "INFO",
   "timeout": 30,
@@ -24,8 +12,6 @@
   "comments": [
     "UPDATED: Using BSE NFCAST production multicast: 239.1.2.5:26002",
     "This is the primary BSE NFCAST feed from the manual",
-    "Alternate production: 227.0.0.21:12996",
-    "Simulation/test: 226.1.0.1:11401",
     "Buffer size: 2048 bytes (updated from 2000 for better packet capture)",
     "IGMPv2 multicast protocol required",
     "Message types: 2020 (Market Picture) and 2021 (Market Picture Complex)",
