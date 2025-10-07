@@ -163,15 +163,20 @@ class PacketDecoder:
             msg_type = struct.unpack('<H', packet[8:10])[0]
             logger.debug(f"Message type: {msg_type} (0x{msg_type:04x})")
             
-            # Timestamp (offsets 20-25, Big-Endian uint16 each)
-            hour = struct.unpack('>H', packet[20:22])[0]
-            minute = struct.unpack('>H', packet[22:24])[0]
-            second = struct.unpack('>H', packet[24:26])[0]
+            # Timestamp (offsets 20-25, Little-Endian uint16 each - BSE proprietary format)
+            hour = struct.unpack('<H', packet[20:22])[0]
+            minute = struct.unpack('<H', packet[22:24])[0]
+            second = struct.unpack('<H', packet[24:26])[0]
             
-            # Create timestamp with current date and parsed time
-            now = datetime.now()
-            timestamp = now.replace(hour=hour, minute=minute, second=second, 
-                                  microsecond=0)
+            # Validate timestamp values before using them
+            if hour > 23 or minute > 59 or second > 59:
+                logger.warning(f"Invalid timestamp values: {hour:02d}:{minute:02d}:{second:02d} - using current time")
+                timestamp = datetime.now().replace(microsecond=0)
+            else:
+                # Create timestamp with current date and parsed time
+                now = datetime.now()
+                timestamp = now.replace(hour=hour, minute=minute, second=second, 
+                                      microsecond=0)
             logger.debug(f"Timestamp: {timestamp.strftime('%H:%M:%S')}")
             
             return {
@@ -240,13 +245,31 @@ class PacketDecoder:
             return None
     
     def _get_num_records(self, packet_size: int) -> int:
-        """Determine number of records based on packet size."""
-        if packet_size == 300:
-            return 4
-        elif packet_size == 556:
-            return 6
-        else:
-            return max(0, (packet_size - 36) // 64)
+        """
+        Determine number of records based on packet size.
+        
+        BSE production feed uses DYNAMIC packet sizes:
+        - 300 bytes: 4 records (36 + 4*64 = 292 bytes used)
+        - 564 bytes: 8 records (36 + 8*64 = 548 bytes used)
+        - 828 bytes: 12 records (36 + 12*64 = 804 bytes used)
+        
+        Formula: num_records = (packet_size - 36) // 64
+        """
+        # Calculate number of 64-byte records after 36-byte header
+        header_size = 36
+        record_size = 64
+        
+        if packet_size < header_size:
+            logger.warning(f"Packet size {packet_size} < header size {header_size}")
+            return 0
+        
+        available_space = packet_size - header_size
+        num_records = available_space // record_size
+        
+        logger.debug(f"Packet {packet_size}B → {num_records} records "
+                   f"({num_records * record_size} bytes used)")
+        
+        return num_records
     
     def get_stats(self) -> Dict:
         """Get decoder statistics."""

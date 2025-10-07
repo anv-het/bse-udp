@@ -65,17 +65,19 @@ class PacketReceiver:
     MSG_TYPE_MARKET_PICTURE_COMPLEX = 2021  # 0x07E5 in Little-Endian
     
     # Packet format identifiers (Big-Endian at offset 4-5)
-    FORMAT_300B = 0x0124  # 300-byte format
-    FORMAT_556B = 0x022C  # 556-byte format
-    FORMAT_828B = 0x033C  # 828-byte format (PRODUCTION BSE FEED)
+    # CRITICAL: Format ID = packet size in decimal!
+    FORMAT_300B = 0x012C  # 300 bytes (300 decimal)
+    FORMAT_556B = 0x022C  # 556 bytes (556 decimal)
+    FORMAT_564B = 0x0234  # 564 bytes (564 decimal) - PRODUCTION
+    FORMAT_828B = 0x033C  # 828 bytes (828 decimal) - PRODUCTION
     
-    # Expected packet sizes
-    VALID_PACKET_SIZES = [300, 556, 828]  # Added 828 bytes for production feed
+    # BSE production feed uses DYNAMIC packet sizes!
+    # Format ID at bytes 4-5 (Big-Endian) indicates packet size
+    # We'll validate: format_id == len(packet)
     
     # Header constants
     HEADER_SIZE = 36
-    RECORD_SIZE = 64
-    RECORD_OFFSETS = [36, 100, 164, 228, 292, 356]  # Up to 6 instruments per packet (may need expansion for 828B)
+    RECORD_SIZE = 64  # Each instrument record is 64 bytes
     
     def __init__(self, sock: socket.socket, config: dict, token_map: Dict[str, dict]):
         """
@@ -328,13 +330,27 @@ class PacketReceiver:
     
     def _validate_packet(self, packet: bytes) -> bool:
         """
-        Validate packet structure.
+        Validate packet structure with DYNAMIC size validation.
         
-        Checks:
-        - Minimum size (at least header size)
-        - Expected packet size (300 or 556 bytes)
-        - Leading zeros (first 4 bytes should be 0x00000000)
-        - Format ID validity
+        BSE production feed sends packets with MULTIPLE different sizes:
+        - 300 bytes (Format ID 0x012C)
+        - 564 bytes (Format ID 0x0234) - Most common in production
+        - 828 bytes (Format ID 0x033C)
+        
+        KEY INSIGHT: Format ID (bytes 4-5, LITTLE-ENDIAN!) = packet size in decimal!
+        
+        CRITICAL ENDIANNESS DISCOVERY:
+        - Bytes 4-5 in packet: 0x2C01
+        - Read as BIG-ENDIAN: 0x012C = 300 ✓
+        - BUT actual bytes are: [0x2C, 0x01]
+        - This is LITTLE-ENDIAN representation!
+        - Read as LITTLE-ENDIAN: 0x012C = 300 ✓
+        
+        Validation checks:
+        1. Minimum size (at least header size)
+        2. Leading zeros (bytes 0-3 must be 0x00000000)
+        3. Format ID (LITTLE-ENDIAN) matches packet length
+        4. Message type is valid (2020 or 2021)
         
         Args:
             packet: Raw packet bytes
@@ -343,59 +359,54 @@ class PacketReceiver:
             True if packet is valid, False otherwise
         """
         # Track validation failures for first 5 packets
-        if self.stats['packets_received'] <= 5:
-            
-            # Check minimum size
-            if len(packet) < self.HEADER_SIZE:
-                logger.warning(f"❌ VALIDATION FAILED: Packet too small: {len(packet)} bytes (need at least {self.HEADER_SIZE})")
-                return False
-            
-            # Check expected size (300 or 556 bytes)
-            if len(packet) not in self.VALID_PACKET_SIZES:
-                logger.warning(f"❌ VALIDATION FAILED: Unexpected packet size: {len(packet)} bytes (expected 300 or 556)")
-                logger.warning(f"   First 20 bytes (hex): {packet[:20].hex()}")
-                return False
-            
-            # Check leading zeros (offset 0-3 should be 0x00000000)
-            # This is a key identifier from BSE_Final_Analysis_Report.md
-            leading_bytes = packet[0:4]
-            if leading_bytes != b'\x00\x00\x00\x00':
-                logger.warning(f"❌ VALIDATION FAILED: Invalid leading bytes: {leading_bytes.hex()} (expected 00000000)")
-                logger.warning(f"   First 20 bytes (hex): {packet[:20].hex()}")
-                return False
-            
-            # Check format ID (offset 4-5, Big-Endian)
-            format_id = struct.unpack('>H', packet[4:6])[0]
-            if format_id not in [self.FORMAT_300B, self.FORMAT_556B, self.FORMAT_828B]:
-                logger.warning(f"❌ VALIDATION FAILED: Unknown format ID: 0x{format_id:04X}")
-                logger.warning(f"   First 20 bytes (hex): {packet[:20].hex()}")
-                return False
-            
-            # If we got here, packet is valid!
-            logger.info(f"✅ VALIDATION PASSED: Size={len(packet)}, FormatID=0x{format_id:04X}")
-            return True
+        verbose_logging = (self.stats['packets_received'] <= 5)
         
-        # For packets after the first 5, use quiet validation
         # Check minimum size
         if len(packet) < self.HEADER_SIZE:
-            logger.debug(f"Packet too small: {len(packet)} bytes (need at least {self.HEADER_SIZE})")
-            return False
-        
-        # Check expected size (300 or 556 bytes)
-        if len(packet) not in self.VALID_PACKET_SIZES:
+            if verbose_logging:
+                logger.warning(f"❌ VALIDATION FAILED: Packet too small: {len(packet)} bytes (need at least {self.HEADER_SIZE})")
             return False
         
         # Check leading zeros (offset 0-3 should be 0x00000000)
-        # This is a key identifier from BSE_Final_Analysis_Report.md
+        # This is the key identifier from BSE_Final_Analysis_Report.md
         leading_bytes = packet[0:4]
         if leading_bytes != b'\x00\x00\x00\x00':
+            if verbose_logging:
+                logger.warning(f"❌ VALIDATION FAILED: Invalid leading bytes: {leading_bytes.hex()} (expected 00000000)")
+                logger.warning(f"   First 20 bytes (hex): {packet[:20].hex()}")
             return False
         
-        # Check format ID (offset 4-5, Big-Endian)
-        format_id = struct.unpack('>H', packet[4:6])[0]
-        if format_id not in [self.FORMAT_300B, self.FORMAT_556B, self.FORMAT_828B]:
+        # Extract Format ID (offset 4-5, LITTLE-ENDIAN!!!)
+        format_id = struct.unpack('<H', packet[4:6])[0]  # ← CHANGED TO LITTLE-ENDIAN
+        
+        # CRITICAL: Format ID should match packet size in decimal!
+        if format_id != len(packet):
+            if verbose_logging:
+                logger.warning(f"❌ VALIDATION FAILED: Format ID mismatch")
+                logger.warning(f"   Format ID (LE): {format_id} (0x{format_id:04X})")
+                logger.warning(f"   Packet size: {len(packet)} bytes")
+                logger.warning(f"   First 20 bytes (hex): {packet[:20].hex()}")
             return False
         
+        # Extract message type (offset 8-9, Little-Endian)
+        msg_type_bytes = struct.unpack('<H', packet[8:10])[0]
+        
+        # Check if message type is valid (2020 or 2021)
+        if msg_type_bytes not in [self.MSG_TYPE_MARKET_PICTURE, self.MSG_TYPE_MARKET_PICTURE_COMPLEX]:
+            if verbose_logging:
+                logger.warning(f"❌ VALIDATION FAILED: Invalid message type: {msg_type_bytes} (0x{msg_type_bytes:04X})")
+                logger.warning(f"   Expected: 2020 (0x07E4) or 2021 (0x07E5)")
+                logger.warning(f"   First 20 bytes (hex): {packet[:20].hex()}")
+            return False
+        
+        # If we got here, packet is valid!
+        if verbose_logging:
+            logger.info(f"✅ VALIDATION PASSED:")
+            logger.info(f"   Size: {len(packet)} bytes")
+            logger.info(f"   Format ID (LE): {format_id} (0x{format_id:04X})")
+            logger.info(f"   Message Type: {msg_type_bytes}")
+        
+        return True
         return True
     
     def _extract_message_type(self, packet: bytes) -> int:
@@ -432,8 +443,21 @@ class PacketReceiver:
         """
         tokens = []
         
-        # Parse records at fixed offsets
-        for offset in self.RECORD_OFFSETS:
+        # Calculate number of possible records based on packet size
+        # Records start at offset 36, each record is 64 bytes
+        header_size = 36
+        record_size = 64
+        
+        if len(packet) < header_size:
+            return tokens
+        
+        available_space = len(packet) - header_size
+        num_records = available_space // record_size
+        
+        # Parse records at calculated offsets
+        for i in range(num_records):
+            offset = header_size + (i * record_size)
+            
             # Check if we have enough data for this record
             if offset + 4 > len(packet):
                 break
