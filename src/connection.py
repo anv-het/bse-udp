@@ -210,15 +210,15 @@ def create_connection(config: dict) -> BSEMulticastConnection:
         BSEMulticastConnection: Configured connection object
     
     Example:
-        >>> config = {'multicast': {'ip': '226.1.0.1', 'port': 11401}}
+        >>> config = {'multicast': {'ip': '239.1.2.5', 'port': 26002}}
         >>> conn = create_connection(config)
         >>> sock = conn.connect()
     """
     multicast_config = config.get('multicast', {})
     
     return BSEMulticastConnection(
-        multicast_ip=multicast_config.get('ip', '226.1.0.1'),
-        port=multicast_config.get('port', 11401),
+        multicast_ip=multicast_config.get('ip', '239.1.2.5'),
+        port=multicast_config.get('port', 26002),
         buffer_size=config.get('buffer_size', 2000)
     )
 
@@ -231,8 +231,8 @@ if __name__ == '__main__':
     # Simulation environment configuration
     test_config = {
         'multicast': {
-            'ip': '226.1.0.1',
-            'port': 11401
+            'ip': '239.1.2.5',
+            'port': 26002
         },
         'buffer_size': 2000
     }

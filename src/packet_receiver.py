@@ -67,9 +67,18 @@ class PacketReceiver:
     # Packet format identifiers (Big-Endian at offset 4-5)
     # CRITICAL: Format ID = packet size in decimal!
     FORMAT_300B = 0x012C  # 300 bytes (300 decimal)
-    FORMAT_556B = 0x022C  # 556 bytes (556 decimal)
-    FORMAT_564B = 0x0234  # 564 bytes (564 decimal) - PRODUCTION
+    FORMAT_564B = 0x022C  # 564 bytes (564 decimal)
     FORMAT_828B = 0x033C  # 828 bytes (828 decimal) - PRODUCTION
+    
+    # Packet size to token mapping (record size = 264 bytes)
+    # Header = 36 bytes, each record = 264 bytes
+    PACKET_FORMAT_MAP = {
+        300: {'token_count': 1, 'offsets': [36]},
+        564: {'token_count': 2, 'offsets': [36, 300]},
+        828: {'token_count': 3, 'offsets': [36, 300, 564]},
+        1092: {'token_count': 4, 'offsets': [36, 300, 564, 828]},
+        1356: {'token_count': 5, 'offsets': [36, 300, 564, 828, 1092]}
+    }
     
     # BSE production feed uses DYNAMIC packet sizes!
     # Format ID at bytes 4-5 (Big-Endian) indicates packet size

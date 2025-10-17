@@ -1197,17 +1197,26 @@ The best 5 structure needs to be read for buy side and sell side independently. 
 Direct NFCAST
 V 5.0
 
-- Best Bid Rate1, Total Bid Qty1, No. of Bid at the price points1, Implied Buy Quantity 1
-- Best Bid Rate2, Total Bid Qty2, No. of Bid at the price points2, Implied Buy Quantity 2
-- ...and so on for all 5 levels.
+✓ Best Bid Rate1, Total Bid Qty1, No. of   Bid at the price points1, Implied Buy Quantity 1 
+✓ Best Bid Rate2, Total Bid Qty2, No. of   Bid at the price points2, Implied Buy Quantity 2 
+✓ Best Bid Rate3, Total Bid Qty3, No. of   Bid at the price points3, Implied Buy Quantity 3 
+✓ Best Bid Rate4, Total Bid Qty4, No. of   Bid at the price points4, Implied Buy Quantity 4 
+✓ Best Bid Rate5, Total Bid Qty5, No. of   Bid at the price points5, Implied Buy Quantity 5 
+
 Once 5 Best Bid Fields completed then start reading the 5 Best Offer Fields in similar order.
 
 5.5 Decompression logic
 The general decompression mechanism holds true. Additionally, the base fields change with each level. For each level, the base fields are the previous level's field values.
-- Level 1 Base: LTP, LTQ
-- Level 2 Base: Best Bid 1, Best Bid Qty 1, etc.
-- Level 3 Base: Best Bid 2, Best Bid Qty 2, etc.
-...and so on.
+Level 1 Best Bid 1 Best Bid Qty 1 No of orders 1 Implied Buy Qty 1 
+         Base LTP LTQ LTQ LTQ 
+Level 2 Best Bid 2 Best Bid Qty 2 No of orders 2 Implied Buy Qty 2 
+          Base Best Bid 1 Best Bid Qty 1 No of orders 1 Implied Buy Qty 1 
+Level 3 Best Bid 3 Best Bid Qty 3 No of orders 3 Implied Buy Qty 3 
+          Base Best Bid 2 Best Bid Qty 2 No of orders 2 Implied Buy Qty 2 
+Level 4 Best Bid 4 Best Bid Qty 4 No of orders 4 Implied Buy Qty 4 
+         Base Best Bid 3 Best Bid Qty 3 No of orders 3 Implied Buy Qty 3 
+Level 5 Best Bid 5 Best Bid Qty 5 No of orders 5 Implied Buy Qty 5 
+        Base Best Bid 4 Best Bid Qty 4 No of orders 4 Implied Buy Qty 4 
 
 Similar logic applies for the sell side.
 
@@ -1232,6 +1241,8 @@ V 5.0
 
 5.9 Example of Decompression Logic
 
+Following are 3 examples explaining the decompression logic for the market picture message.  
+
 5.9.1 Example for General Decompression Mechanism
 Base Rate (LTP) = 1000.
 - Open Rate: Read 2 bytes = -500. Final value = 1000 + (-500) = 500.
@@ -1249,23 +1260,258 @@ Instrument has one bid rate, no offer rate. Base LTP = 1000, Base LTQ = 10.
 - Best Offer Rate1: Read 2 bytes = -32766. This indicates end of Best offer.
 - ...remaining offer fields are not present.
 
---- PAGE 52 ---
+BSE - CONFIDENTIAL 
 
-(Content of Page 52 is a continuation of the example on page 51, which has been summarized above)
 
---- PAGE 53 ---
 
-Direct NFCAST
-V 5.0
+Direct NFCAST        V 5.0 
 
-5.9.3 Example for full market picture packet reading
-This section details the byte-by-byte reading process for a full market picture message, specifying how many bytes to read for each field and when to apply the decompression logic. It lists all fields from Message Type to the final Reserved Field in the order they appear in the packet.
+Last Traded Rate Base 1000 4 Assume already available in memory 
 
-(The detailed table is omitted here for brevity but outlines reading 4 bytes for Longs, 8 bytes for Long Longs, 1 byte for Chars, etc., for the uncompressed header section, and then applying the 2-byte differential logic for the compressed data section starting from Open Rate.)
+Last Traded Base 10 4 Assume already available in memory 
+Quantity 
+Best Bid Rate1 Compressed 0 2 Read next 2 bytes to get 0 and apply it to LTR 
+
+to get the final value as 1000. 
+Total Bid Qty1 Compressed 15 2 Read next 2 bytes to get 15 and apply it to LTQ 
+
+to get the final value as 25. 
+Bid at the price Compressed -5 2 Read next 2 bytes to get -5 and apply it to LTQ 
+points1 to get the final value as 5. 
+Implied Buy Compressed -10 2 Read next 2 bytes to get -10 and apply it to 
+Quantity 1 LTQ to get the final value as 0. 
+Best Bid Rate2 Compressed 32766 2 Read next 2 bytes to get 32766 indicates end 
+
+of Best bid [Not available] 
+Total Bid Qty2 Compressed NA 0 Not Available 
+Bid at the price Compressed NA 0 Not Available 
+points2 
+Implied Buy Compressed NA 0 Not Available 
+Quantity 2 
+Best Bid Rate3 Compressed NA 0 Not Available 
+Total Bid Qty3 Compressed NA 0 Not Available 
+Bid at the price Compressed NA 0 Not Available 
+points3 
+Implied Buy Compressed NA 0 Not Available 
+Quantity 3 
+Best Bid Rate4 Compressed NA 0 Not Available 
+Total Bid Qty4 Compressed NA 0 Not Available 
+Bid at the price Compressed NA 0 Not Available 
+points4 
+Implied Buy Compressed NA 0 Not Available 
+Quantity 4 
+Best Bid Rate5 Compressed NA 0 Not Available 
+Total Bid Qty5 Compressed NA 0 Not Available 
+Bid at the price Compressed NA 0 Not Available 
+points5 
+Implied Buy Compressed NA 0 Not Available 
+Quantity 5 
+Best Offer Rate1 Compressed -32766 2 Read next 2 bytes to get -32766 indicates end 
+
+of Best offer [Not available] 
+Total Offer Qty1 Compressed NA 0 Not Available 
+Offer at the price Compressed NA 0 Not Available 
+points1 
+Implied Sell Compressed NA 0 Not Available 
+Quantity 1 
+
+52 
+ 
+
+BSE - CONFIDENTIAL 
+
+
+
+Direct NFCAST        V 5.0 
+
+ 
+
+5.9.3 Example for full market picture packet reading 
+ 
+
+Field Name Type Action 
+Message Type Long Read 4 bytes 
+Reserved Field Long Read next 4 bytes 
+Reserved Field Long Read next 4 bytes 
+Reserved Field unsigne Read next 2 bytes 
+
+d short 
+Hour Short Read next 2 bytes 
+Minute Short Read next 2 bytes 
+Second Short Read next 2 bytes 
+Millisecond Short Read next 2 bytes 
+Reserved Field Short Read next 2 bytes 
+Reserved Field Short Read next 2 bytes 
+No of Records Short Read next 2 bytes 
+
+Following is a market picture structure appearing repeatedly (Max 5 times) 
+
+Instrument Code Long Read next 4 bytes for message 2020 / 8 bytes for 2021 
+No of Trades Unsigne Read next 4 bytes 
+
+d Long 
+Volume Long Read next 8 bytes 
+
+Long 
+Value    Long Read next 8 bytes 
+
+Long 
+Trade Value Flag Char Read next 1 byte 
+Trend Char Read next 1 byte 
+Six Lakh Flag Char Read next 1 byte 
+Reserved Field               Char Read next 1 byte 
+Market Type Short Read next 2 bytes 
+Session Number Short Read next 2 bytes 
+LTP Hour Char Read next 1 byte 
+LTP Minute Char Read next 1 byte 
+LTP Second Char Read next 1 byte 
+LTP Millisecond Char[3] Read next 3 bytes 
+Reserved Field Char[2] Read next 2 bytes 
+Reserved Field Short Read next 2 bytes 
+Reserved Field Long Read next 8 bytes 
+
+Long 
+No of Price points Short Read next 2 bytes 
+Timestamp Long Read next 8 bytes 
+
+Long 
+Close Rate Long Read next 4 bytes  
+Last Trade Qty Long Read next 8 bytes and save as Qty base 
+
+Long 
+
+53 
+ 
+
+BSE - CONFIDENTIAL 
+
+
+
+Direct NFCAST        V 5.0 
+
+LTP   Long Read next 4 bytes and save as Rate base 
+Open Rate Long Read next 2 bytes and apply compression logic with base as LTP 
+Previous Close Rate Long Read next 2 bytes and apply compression logic with base as LTP 
+High Rate Long Read next 2 bytes and apply compression logic with base as LTP 
+Low Rate Long Read next 2 bytes and apply compression logic with base as LTP 
+Reserved Field Long Read next 2 bytes and apply compression logic with base as LTP 
+Indicative Equilibrium Long Read next 2 bytes and apply compression logic with base as LTP 
+Price 
+Indicative Equilibrium Long Read next 2 bytes and apply compression logic with base as LTQ 
+Qty Long 
+Total Bid Qty Long Read next 2 bytes and apply compression logic with base as LTQ 
+
+Long 
+Total Offer Qty Long Read next 2 bytes and apply compression logic with base as LTQ 
+
+Long 
+Lower Circuit Limit Long Read next 2 bytes and apply compression logic with base as LTP 
+Upper Circuit Limit Long Read next 2 bytes and apply compression logic with base as LTP 
+Weighted Average Long Read next 2 bytes and apply compression logic with base as LTP 
+
+Following buy sub-structure will repeat number of times as specified in the “No. of Price points” field 
+above or the buy sub structure will terminate if the value 32766 encountered. 
+
+Best Bid Rate Long Read next 2 bytes and apply compression logic with base as LTP.  
+For level 2 base is 1st level and so on 
+
+Total Bid Qty Long Read next 2 bytes and apply compression logic with base as LTQ. 
+Long For level 2 base is 1st level and so on 
+
+No. of   Bid at the Unsigne Read next 2 bytes and apply compression logic with base as LTQ. 
+price points d Long For level 2 base is 1st level and so on 
+Implied Buy Quantity Long Read next 2 bytes and apply compression logic with base as LTQ. 
+
+Long For level 2 base is 1st level and so on 
+Reserved Field Long Read next 2 bytes and apply compression logic with base as LTQ. 
+
+For level 2 base is 1st level and so on 
+
+Following sell sub-structure will repeat number of times as specified in the “No. of Price points” field 
+above or the sell sub structure will terminate if the value                 -32766 encountered. 
+
+Best Offer Rate Long Read next 2 bytes and apply compression logic with base as LTP.  
+For level 2 base is 1st level and so on 
+
+Total Offer Qty Long Read next 2 bytes and apply compression logic with base as LTQ. 
+Long For level 2 base is 1st level and so on 
+
+No. of Ask at the price Unsigne Read next 2 bytes and apply compression logic with base as LTQ. 
+point d Long For level 2 base is 1st level and so on 
+Implied Sell Quantity Long Read next 2 bytes and apply compression logic with base as LTQ. 
+
+Long For level 2 base is 1st level and so on 
+Reserved Field Long Read next 2 bytes and apply compression logic with base as LTQ. 
+
+For level 2 base is 1st level and so on 
+44: Multicast addresses and ports for the reference data snapshot fee 
 
 --- PAGE 54 ---
 
-(Content of Page 54 is a continuation of the detailed reading table from page 53)
+
+
+BSE - CONFIDENTIAL 
+
+
+
+Direct NFCAST        V 5.0 
+
+6 Appendix 
+
+6.1 Index Code Mapping Table 
+ 
+Kindly refer Index Name file (INDEXDDMMYYYY.csv) provided by Exchange which contain Index Code 
+and Index Name of all Indices disseminated real time by BSE. This file is made available on BSE website 
+and extranet for download by EOD. For more details related file and format, kindly refer circular number 
+20250411-7 dated 11th April 2025 
+ 
+
+6.2 Product (Market Segment) Identifier in Master Files 
+The following table gives the master file names and different fields in each file which provides 
+information about the product ID. 
+ 
+Segment File name Field name and Position 
+Equity SCRIP_ddmmyy.TXT  Name: Partition ID and Product 
+
+ID 
+Position :5  
+
+Equity Derivatives EQD_COddmmyy.csv, Name: Product ID 
+EQD_SPD_COddmmyy.csv  Position: 29 
+
+Currency Derivatives BFX_COddmmyy.csv, Name: Product ID 
+BFX_SPD_COddmmyy.csv  Position: 29 
+
+Commodities Derivatives BCX_COddmmyy.csv  Name: Product ID 
+Position: 29 
+
+ 
+
+6.3 Price Precision Table 
+ 
+Segment Price Precision  Description 
+Equity 2 decimals The value needs to be divided 
+
+with 100. 
+Equity Derivatives 2 decimals The value needs to be divided 
+
+with 100. 
+Currency Derivatives 4 decimals The value needs to be divided 
+
+with 10000 
+Commodities Derivatives 2 decimals The value needs to be divided 
+
+with 100. 
+
+ 
+
+7 Change log. 
+This document has been through the following iterations: 
+ 
+
+7.1 Changes compared to NFCAST with IML 
+This section is meant for application developers who are already using the NFCAST data via IML and 
+want to know the incremental changes that need to be done in their application to read Direct NFCAST. 
 
 --- PAGE 55 ---
 
