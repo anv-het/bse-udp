@@ -128,31 +128,30 @@ class MarketDataCollector:
         """
         Build ISO timestamp string from packet header fields.
         
-        BSE packet header contains time as 3 separate uint16 fields (HH, MM, SS).
-        Combine with today's date to create ISO format timestamp.
+        BSE packet header contains timestamp as a datetime object from decoder.
         
         Args:
-            header: Parsed header with time_hour, time_minute, time_second
+            header: Parsed header with 'timestamp' datetime object
         
         Returns:
             ISO format timestamp string: "YYYY-MM-DD HH:MM:SS"
         """
         try:
-            hour = header.get('time_hour', 0)
-            minute = header.get('time_minute', 0)
-            second = header.get('time_second', 0)
-            
-            # Use today's date + packet time
-            now = datetime.now()
-            timestamp = now.replace(hour=hour, minute=minute, second=second, microsecond=0)
-            timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S')
-            
-            logger.debug(f"Built timestamp: {timestamp_str} from header time {hour:02d}:{minute:02d}:{second:02d}")
-            return timestamp_str
+            # Decoder provides timestamp as datetime object
+            timestamp = header.get('timestamp')
+            if timestamp and isinstance(timestamp, datetime):
+                # Format with milliseconds: YYYY-MM-DD HH:MM:SS.mmm
+                timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]  # Truncate to milliseconds
+                logger.debug(f"Built timestamp: {timestamp_str}")
+                return timestamp_str
+            else:
+                # Fallback to current time if timestamp not available
+                logger.warning("No timestamp in header, using current time")
+                return datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
             
         except Exception as e:
             logger.error(f"Error building timestamp: {e}, using current time")
-            return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            return datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
     
     def _build_quote(self, record: dict, timestamp: str) -> Optional[Dict]:
         """
@@ -179,9 +178,9 @@ class MarketDataCollector:
             self.stats['missing_fields'] += 1
             return None
         
-        # Resolve token to symbol
-        symbol = self._resolve_symbol(token)
-        if symbol == 'UNKNOWN':
+        # Resolve token to symbol and contract details
+        symbol_info = self._resolve_symbol_details(token)
+        if symbol_info['symbol'] == 'UNKNOWN':
             self.stats['unknown_tokens'] += 1
             logger.debug(f"Unknown token {token}, using placeholder symbol")
         
@@ -190,10 +189,17 @@ class MarketDataCollector:
             self.stats['validation_errors'] += 1
             return None
         
-        # Build quote dictionary
+        # Build combined symbol_name: SENSEX20NOV2025_82000CE or SENSEX20NOV2025_FUT
+        symbol_name = self._format_symbol_name(symbol_info)
+        
+        # Build quote dictionary with separate symbol columns
         quote = {
             'token': token,
-            'symbol': symbol,
+            'symbol': symbol_info['symbol'],           # Base symbol (e.g., SENSEX)
+            'symbol_name': symbol_name,                # Combined identifier (e.g., SENSEX20NOV2025_82000CE)
+            'expiry': symbol_info['expiry'],           # Expiry date (e.g., 2025-11-20)
+            'option_type': symbol_info['option_type'], # CE/PE/FUT
+            'strike': symbol_info['strike'],           # Strike price (e.g., 83800)
             'timestamp': timestamp,
             'open': record.get('open', 0.0),
             'high': record.get('high', 0.0),
@@ -215,8 +221,119 @@ class MarketDataCollector:
         else:
             quote['ask_levels'] = []
         
-        logger.debug(f"Built quote: token={token} symbol={symbol} ltp={quote['ltp']:.2f} vol={quote['volume']}")
+        logger.debug(f"Built quote: token={token} symbol={symbol_info['symbol']} ltp={quote['ltp']:.2f} vol={quote['volume']}")
         return quote
+    
+    def _resolve_symbol_details(self, token: int) -> dict:
+        """
+        Resolve token ID to detailed contract information.
+        
+        BSE tokens map to derivative contracts (SENSEX/BANKEX options/futures).
+        Token map loaded from data/tokens/token_details.json at startup.
+        
+        Extracts and parses contract details:
+        - ticker: Base symbol (SENSEX/BANKEX)
+        - strike: Strike price in Rupees (converted from paise)
+        - expiry: Expiry date (DD-MMM-YYYY format)
+        - option_type: CE/PE for options, blank for futures
+        
+        Args:
+            token: BSE token ID (integer)
+        
+        Returns:
+            Dictionary with symbol details:
+            {
+                'symbol': 'SENSEX',           # Base ticker
+                'expiry': '27-NOV-2025',      # Expiry date
+                'option_type': 'CE',          # CE/PE/''
+                'strike': '83300'             # Strike price in Rupees
+            }
+        """
+        token_str = str(token)
+        if token_str in self.token_map:
+            contract = self.token_map[token_str]
+            
+            # Extract base ticker (SENSEX/BANKEX)
+            ticker = contract.get('ticker', contract.get('symbol', 'UNKNOWN'))
+            
+            # Extract expiry (already formatted)
+            expiry = contract.get('expiry', '')
+            
+            # Extract option type (CE/PE or blank for futures)
+            option_type = contract.get('option_type', '')
+            
+            # Extract strike price (convert from paise to Rupees)
+            strike_paise = contract.get('strike', '')
+            if strike_paise and str(strike_paise).isdigit():
+                strike_rupees = int(strike_paise) / 100.0
+                # Format as integer if whole number, else with decimals
+                strike = str(int(strike_rupees)) if strike_rupees == int(strike_rupees) else f"{strike_rupees:.2f}"
+            else:
+                strike = ''
+            
+            return {
+                'symbol': ticker,
+                'expiry': expiry,
+                'option_type': option_type,
+                'strike': strike
+            }
+        else:
+            logger.debug(f"Token {token} not found in token_map")
+            return {
+                'symbol': 'UNKNOWN',
+                'expiry': '',
+                'option_type': '',
+                'strike': ''
+            }
+    
+    def _format_symbol_name(self, symbol_info: dict) -> str:
+        """
+        Format combined symbol name for unique identification.
+        
+        Format: {symbol}{expiry}_{strike}{option_type}
+        Examples:
+        - Options: SENSEX20NOV2025_82000CE, SENSEX20NOV2025_82000PE
+        - Futures: SENSEX20NOV2025_FUT
+        
+        Args:
+            symbol_info: Dictionary with symbol, expiry, option_type, strike
+        
+        Returns:
+            Formatted symbol name string
+        """
+        symbol = symbol_info.get('symbol', 'UNKNOWN')
+        expiry = symbol_info.get('expiry', '')
+        option_type = symbol_info.get('option_type', '')
+        strike = symbol_info.get('strike', '')
+        
+        # Format expiry from "06-NOV-2025" to "20NOV2025"
+        if expiry:
+            try:
+                # Parse different possible formats
+                if '-' in expiry:
+                    parts = expiry.split('-')
+                    if len(parts) == 3:
+                        day, month, year = parts
+                        expiry_formatted = f"{day}{month}{year}"
+                    else:
+                        expiry_formatted = expiry.replace('-', '')
+                else:
+                    expiry_formatted = expiry
+            except Exception:
+                expiry_formatted = expiry.replace('-', '')
+        else:
+            expiry_formatted = ''
+        
+        # Build symbol name based on contract type
+        if option_type and option_type in ('CE', 'PE') and strike:
+            # Options: SENSEX20NOV2025_82000CE
+            return f"{symbol}{expiry_formatted}_{strike}{option_type}"
+        elif option_type == '' and strike == '':
+            # Futures: SENSEX20NOV2025_FUT
+            return f"{symbol}{expiry_formatted}_FUT"
+        else:
+            # Fallback: Just symbol and expiry
+            return f"{symbol}{expiry_formatted}"
     
     def _resolve_symbol(self, token: int) -> str:
         """

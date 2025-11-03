@@ -14,12 +14,12 @@ import time
 from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from src.connection import BSEMulticastConnection
-from src.packet_receiver import PacketReceiver
-from src.decoder import PacketDecoder
-from src.decompressor import NFCASTDecompressor
-from src.data_collector import MarketDataCollector
-from src.saver import DataSaver
+from connection import BSEMulticastConnection
+from packet_receiver import PacketReceiver
+from decoder import PacketDecoder
+from decompressor import NFCASTDecompressor
+from data_collector import MarketDataCollector
+from saver import DataSaver
 import json
 
 # Target tokens

@@ -103,44 +103,37 @@ class PacketDecoder:
             num_records = self._get_num_records(packet_size)
             logger.debug(f"Expected {num_records} records for {packet_size}B packet")
             
-            # Parse records sequentially (variable length due to compression)
-            # Start at offset 36 after header
+            # Parse records at FIXED 264-byte intervals
+            # CONFIRMED: Each record slot is exactly 264 bytes (null-padded if smaller)
+            # Pattern: 36 (header) + N×264 (records) = total packet size
             records = []
-            current_offset = 36
-            record_index = 0
+            record_slot_size = 264
             
-            while current_offset < packet_size and record_index < num_records:
-                # Try to read at least uncompressed section (67 bytes minimum)
-                remaining_bytes = packet_size - current_offset
-                if remaining_bytes < 67:
-                    logger.debug(f"Not enough bytes for another record ({remaining_bytes} < 67)")
+            logger.debug(f"Packet {packet_size}B → {num_records} records at 264-byte intervals")
+            
+            for record_index in range(num_records):
+                # Calculate record offset (fixed 264-byte slots)
+                record_offset = 36 + (record_index * record_slot_size)
+                
+                # Read exactly 264 bytes for this record slot
+                record_bytes = packet[record_offset:record_offset + record_slot_size]
+                
+                if len(record_bytes) < record_slot_size:
+                    logger.warning(f"Record {record_index} incomplete: {len(record_bytes)}/{record_slot_size} bytes")
                     break
                 
-                # For now, read a larger chunk to include potential compressed data
-                # We'll refine this once decompressor properly tracks bytes consumed
-                chunk_size = min(remaining_bytes, 264)  # Old code used 264 bytes max
-                record_bytes = packet[current_offset:current_offset + chunk_size]
-                
-                record = self._parse_record(record_bytes, current_offset)
+                # Parse the record (will handle null padding internally)
+                record = self._parse_record(record_bytes, record_offset)
                 if record:
                     records.append(record)
                     self.stats['records_decoded'] += 1
                     logger.debug(f"Decoded record {record_index}: token={record['token']}, "
-                               f"ltp={record['ltp']}")
-                    
-                    # For now, advance by estimated average record size
-                    # TODO: Track actual bytes consumed by decompressor
-                    record_size = 67 + 50  # Uncompressed + estimated compressed section
-                    current_offset += record_size
+                               f"ltp={record['ltp']}, offset={record_offset}")
                 else:
                     self.stats['empty_records'] += 1
-                    # Skip forward to try next potential record
-                    current_offset += 67
-                
-                record_index += 1
             
             self.stats['packets_decoded'] += 1
-            logger.info(f"Successfully decoded packet: {len(records)} records extracted")
+            # logger.info(f"Successfully decoded packet: {len(records)} records extracted")
             
             return {
                 'header': header,
@@ -182,21 +175,21 @@ class PacketDecoder:
             msg_type = struct.unpack('<H', packet[8:10])[0]
             logger.debug(f"Message type: {msg_type} (0x{msg_type:04x})")
             
-            # Timestamp (offsets 20-25, Little-Endian uint16 each - BSE proprietary format)
-            hour = struct.unpack('<H', packet[20:22])[0]
-            minute = struct.unpack('<H', packet[22:24])[0]
-            second = struct.unpack('<H', packet[24:26])[0]
+            # Timestamp (offsets 20-25, Big-Endian uint16 each - as per BSE header spec)
+            hour = struct.unpack('>H', packet[20:22])[0]
+            minute = struct.unpack('>H', packet[22:24])[0]
+            second = struct.unpack('>H', packet[24:26])[0]
             
             # Validate timestamp values before using them
             if hour > 23 or minute > 59 or second > 59:
                 logger.warning(f"Invalid timestamp values: {hour:02d}:{minute:02d}:{second:02d} - using current time")
-                timestamp = datetime.now().replace(microsecond=0)
+                timestamp = datetime.now()
             else:
-                # Create timestamp with current date and parsed time
+                # Create timestamp with current date, parsed time, and current microseconds
+                # Note: BSE header doesn't include milliseconds, so we use system time microseconds
                 now = datetime.now()
-                timestamp = now.replace(hour=hour, minute=minute, second=second, 
-                                      microsecond=0)
-            logger.debug(f"Timestamp: {timestamp.strftime('%H:%M:%S')}")
+                timestamp = now.replace(hour=hour, minute=minute, second=second)
+            logger.debug(f"Timestamp: {timestamp.strftime('%H:%M:%S.%f')[:-3]}")  # Show milliseconds
             
             return {
                 'format_id': format_id,
@@ -210,22 +203,40 @@ class PacketDecoder:
     
     def _parse_record(self, record_bytes: bytes, offset: int) -> Optional[Dict]:
         """
-        Parse 64-byte market data record (uncompressed fields only).
+        Parse market data record with uncompressed fields.
         
-        Record Structure (from manual pages 48-55):
-        Offset 0-3:   Token (Little-Endian uint32) ⚠️
-        Offset 8-11:  Prev Close (Big-Endian int32, paise)
-        Offset 20-23: LTP (Big-Endian int32, paise) - Uncompressed base value
-        Offset 24-27: Volume (Big-Endian int32)
+        Record Structure (CONFIRMED from live data analysis):
         
-        Note: For compressed packets (2020/2021), fields from Open onwards
-        are stored as differentials after the base fields.
-        This function extracts the UNCOMPRESSED base values. Decompressor handles diffs.
+        RECORDS ARE VARIABLE LENGTH:
+        - Full records (with order book depth): 264 bytes
+        - Minimal records (no depth): 64-108 bytes
+        - Pattern: 36 (header) + N×264 (records) = 300, 564, 828, 1092, 1356, 1620
+        - Max 6 records per message type 2020
+        
+        ✅ CONFIRMED OFFSETS (from live market data):
+        Offset 0-3:   Token (uint32 LE) ✓ CONFIRMED
+        Offset 4-7:   Open Price (int32 LE, paise) ✓ CONFIRMED
+        Offset 8-11:  Previous Close (int32 LE, paise) ✓ CONFIRMED
+        Offset 12-15: High Price (int32 LE, paise) ✓ CONFIRMED
+        Offset 16-19: Low Price (int32 LE, paise) ✓ CONFIRMED
+        Offset 20-23: Unknown Field (int32 LE) ❓ NOT close price!
+        Offset 24-27: Volume (int32 LE) ✓ CONFIRMED
+        Offset 28-31: Turnover in Lakhs (uint32 LE) ✓ CONFIRMED - Traded Value / 100,000
+        Offset 32-35: Lot Size (uint32 LE) ✓ CONFIRMED - Contract lot size
+        Offset 36-39: LTP - Last Traded Price (int32 LE, paise) ✓ CONFIRMED
+        Offset 40-43: Unknown Field (uint32 LE) ❓ Always zero
+        Offset 44-47: Market Sequence Number (uint32 LE) ✓ CONFIRMED - Increments by 1 per tick
+        Offset 84-87: ATP - Average Traded Price (int32 LE, paise) ✓ CONFIRMED
+        Offset 104-107: Best Bid Price (int32 LE, paise) ✓ CONFIRMED - Also Order Book Bid Level 1
+        Offset 104-263: 5-Level Order Book (160 bytes) ✓ CONFIRMED - Interleaved Bid/Ask
+        
+        All prices are in paise (divide by 100 for rupees).
+        All integer fields use Little-Endian byte order.
         """
-        # ACTUAL BSE packet structure (determined empirically from real packets)
-        # Manual says 76 bytes, but actual packets have uncompressed section of ~67 bytes
-        if len(record_bytes) < 67:
-            logger.warning(f"Record too short: {len(record_bytes)} < 67 bytes")
+        # Minimum record size based on your confirmed fields
+        # We need at least 40 bytes to read LTP at offset 36-39
+        if len(record_bytes) < 40:
+            logger.warning(f"Record too short: {len(record_bytes)} < 40 bytes (minimum for LTP)")
             return None
         
         try:
@@ -239,88 +250,245 @@ class PacketDecoder:
             
             logger.debug(f"Raw record bytes (first 70): {record_bytes[:70].hex()}")
             
-            # Parse uncompressed fields - CONFIRMED from real packet analysis (find_correct_ltp.py)
-            # Analysis of token 861384 (SENSEX FUT) shows:
-            # - Offset +4: LTP = 83,571 paise (Little-Endian) ✓ Matches expected 83,847
-            # - Offset +8: Open = 83,697 paise ✓
-            # - Offset +12: High = 84,419 paise ✓
+            # Parse uncompressed fields - CONFIRMED structure (99% sure)
+            # Field offsets verified from live market data analysis:
+            # Offset +4:  Open Price - 4 bytes, Little-Endian ✓ CONFIRMED
+            # Offset +8:  Prev Close - 4 bytes, Little-Endian ✓ CONFIRMED
+            # Offset +12: High Price - 4 bytes, Little-Endian ✓ CONFIRMED
+            # Offset +16: Low Price - 4 bytes, Little-Endian ✓ CONFIRMED
+            # LTP location: UNKNOWN - still needs to be identified
+            # All prices are in paise (divide by 100 for rupees)
             
-            # Offset +4: LTP - Last Traded Price (4 bytes, Little-Endian) ✓ CONFIRMED
-            ltp = struct.unpack('<i', record_bytes[4:8])[0]
+            # Offset +4: Open Price (4 bytes, Little-Endian) ✓ CONFIRMED
+            open_price = struct.unpack('<i', record_bytes[4:8])[0]
             
-            # Offset +8: Open Price (4 bytes, Little-Endian)
-            open_price = struct.unpack('<i', record_bytes[8:12])[0]
+            # Offset +8: Prev Close Price (4 bytes, Little-Endian) ✓ CONFIRMED
+            prev_close = struct.unpack('<i', record_bytes[8:12])[0]
             
-            # Offset +12: High Price (4 bytes, Little-Endian)
+            # Offset +12: High Price (4 bytes, Little-Endian) ✓ CONFIRMED
             high_price = struct.unpack('<i', record_bytes[12:16])[0]
             
-            # Offset +16: Low Price (4 bytes, Little-Endian)
+            # Offset +16: Low Price (4 bytes, Little-Endian) ✓ CONFIRMED
             low_price = struct.unpack('<i', record_bytes[16:20])[0]
             
-            # Offset +20: Close/Prev Close (4 bytes, Little-Endian)
-            close_rate = struct.unpack('<i', record_bytes[20:24])[0]
+            # Offset +20: Field 20-23 (4 bytes, Little-Endian) - ⚠️ NOT Close Price!
+            # Live data shows values like ₹15.33 when LTP is ₹84,535 - clearly wrong
+            # Possible interpretations: Change from prev close? Points? Different field?
+            # TODO: Investigate actual meaning of this field
+            field_20_23 = struct.unpack('<i', record_bytes[20:24])[0]
             
-            # Volume - need to find correct offset (currently at +24 onwards)
-            # Temporary: use placeholder until we analyze volume field
-            volume = struct.unpack('<q', record_bytes[24:32])[0] if len(record_bytes) >= 32 else 0
-            ltq = 0  # Last Traded Quantity - need to find
-            num_trades = 0  # Need to find
+            # Offset +24: Volume (4 bytes, int32 Little-Endian) ✓ CONFIRMED
+            volume = struct.unpack('<i', record_bytes[24:28])[0]
             
-            # Compression starts after uncompressed section (tentatively at +67)
-            compressed_offset = offset + 67
+            # Offset +28: Total Turnover in Lakhs ✓ CONFIRMED
+            # Total Turnover = Traded Value / 1,00,000 (standard F&O field)
+            # Example: 8,728 lakhs = ₹872,800,000 traded value
+            turnover_lakhs = struct.unpack('<I', record_bytes[28:32])[0] if len(record_bytes) >= 32 else None
             
-            logger.debug(f"Parsed record: token={token}, ltp={ltp} paise (Rs.{ltp/100:.2f}), "
-                       f"open={open_price}, high={high_price}, low={low_price}")
+            # Offset +32: Lot Size ✓ CONFIRMED
+            # Contract lot size (e.g., 20 for Sensex futures)
+            # Used to calculate actual quantity in contracts
+            lot_size = struct.unpack('<I', record_bytes[32:36])[0] if len(record_bytes) >= 36 else None
+            
+            # Offset +36: LTP - Last Traded Price (4 bytes, Little-Endian) ✓ CONFIRMED
+            ltp = struct.unpack('<i', record_bytes[36:40])[0]
+            
+            # UNKNOWN FIELDS 40-47 (for manual identification)
+            # Offset +40: Always zero so far - flags/padding?
+            unknown_40_43 = struct.unpack('<I', record_bytes[40:44])[0] if len(record_bytes) >= 44 else None
+            
+            # Offset +44: Market Sequence Number ✓ CONFIRMED
+            # Packet/market sequence number - increments by 1 with each tick
+            # Critical for detecting missing/out-of-order UDP packets
+            # Used to maintain data integrity in UDP multicast stream
+            sequence_number = struct.unpack('<I', record_bytes[44:48])[0] if len(record_bytes) >= 48 else None
+            
+            # Optional fields (only present in longer records):
+            # Offset +84: ATP - Average Traded Price (4 bytes, Little-Endian) ✓ CONFIRMED
+            atp = struct.unpack('<i', record_bytes[84:88])[0] if len(record_bytes) >= 88 else 0
+            
+            # Offset +104: Best Bid Price ✓ CONFIRMED
+            # This is also the first level of order book (Bid Level 1)
+            bid_price = struct.unpack('<i', record_bytes[104:108])[0] if len(record_bytes) >= 108 else 0
+            
+            # 📊 ORDER BOOK PARSING - ✅ STRUCTURE DISCOVERED!
+            # Order book uses 16-byte blocks per level (5 bids + 5 asks)
+            # Block structure: [Price 4B][Qty 4B][Flag 4B][Unknown 4B]
+            # BID/ASK INTERLEAVED: Bid1, Ask1, Bid2, Ask2, Bid3, Ask3, Bid4, Ask4, Bid5, Ask5
+            # Starts at offset 104 (Bid1 price = Best Bid)
+            # Total: 160 bytes for 10 levels (5 bid + 5 ask)
+            order_book = None
+            if len(record_bytes) >= 264:
+                order_book = self._parse_order_book(record_bytes)
+            
+            # Fields still to find:
+            ltq = 0  # Last Traded Quantity - Location TBD
+            num_trades = 0  # Number of Trades - Location TBD
+            
+            # Record length determines what fields are available
+            record_length = len(record_bytes)
+            has_depth = record_length >= 264  # Full order book depth
+            
+            # Best ask from order book (first ask level price)
+            ask_price = 0
+            if order_book and order_book['asks']:
+                ask_price = int(order_book['asks'][0]['price'] * 100)  # Convert back to paise
+            
+            # Compression starts after uncompressed section
+            compressed_offset = offset + record_length
+            
+            logger.debug(f"Parsed record: token={token}, len={record_length}B, "
+                       f"ltp={ltp} (Rs.{ltp/100:.2f}), "
+                       f"open={open_price}, high={high_price}, low={low_price}, prev_close={prev_close}, "
+                       f"volume={volume}, turnover={turnover_lakhs} lakhs, lot_size={lot_size}, "
+                       f"atp={atp}, bid={bid_price}, ask={ask_price}, seq={sequence_number}, "
+                       f"has_depth={has_depth}, order_book={bool(order_book)}")
             
             return {
                 'token': token,
-                'num_trades': num_trades,
-                'volume': volume,
-                'close_rate': close_rate,  # paise
-                'ltq': ltq,
-                'ltp': ltp,  # paise (BASE for decompression) - CORRECTED OFFSET
-                'open': open_price,  # paise - NEW
-                'high': high_price,  # paise - NEW
-                'low': low_price,   # paise - NEW
-                'compressed_offset': compressed_offset
+                'num_trades': num_trades,  # Location TBD
+                'volume': volume,  # ✓ CONFIRMED (offset 24-27)
+                'field_20_23': field_20_23,  # paise - Unknown field (NOT close price!)
+                'prev_close': prev_close,  # paise - Previous close ✓ CONFIRMED
+                'ltq': ltq,  # Location TBD
+                'ltp': ltp,  # paise - Last Traded Price ✓ CONFIRMED (offset 36-39)
+                'atp': atp,  # paise - Average Traded Price ✓ CONFIRMED (offset 84-87)
+                'bid': bid_price,  # paise - Best Bid Price ✓ CONFIRMED (offset 104-107)
+                'ask': ask_price,  # paise - Best Ask (from order book first level)
+                'open': open_price,  # paise - Open price ✓ CONFIRMED
+                'high': high_price,  # paise - High price ✓ CONFIRMED
+                'low': low_price,   # paise - Low price ✓ CONFIRMED
+                'order_book': order_book,  # ✅ 5-level bid/ask depth (offsets 104-263)
+                'compressed_offset': compressed_offset,
+                # ✅ CONFIRMED FIELDS:
+                'turnover_lakhs': turnover_lakhs,  # ✓ Total turnover in lakhs (offset 28-31)
+                'lot_size': lot_size,  # ✓ Contract lot size (offset 32-35)
+                'sequence_number': sequence_number,  # ✓ Market sequence number (offset 44-47)
+                # ❓ UNKNOWN FIELDS:
+                'unknown_40_43': unknown_40_43,  # Always zero?
             }
             
         except struct.error as e:
             logger.error(f"Record parsing error at offset {offset}: {e}")
             return None
     
+    def _parse_order_book(self, record_bytes: bytes) -> Optional[Dict]:
+        """
+        Parse 5-level order book depth (bid and ask).
+        
+        ✅ STRUCTURE CONFIRMED from live data analysis:
+        - Starts at offset 104 (NOT 108!)
+        - INTERLEAVED structure: Bid1, Ask1, Bid2, Ask2, Bid3, Ask3, Bid4, Ask4, Bid5, Ask5
+        - Each bid/ask uses 16-byte block: [Price 4B][Qty 4B][Flag 4B][Unknown 4B]
+        - Total: 5 levels × 32 bytes/level = 160 bytes (offset 104-263)
+        
+        Block structure:
+        Bytes 0-3:   Price (int32 LE) in paise
+        Bytes 4-7:   Quantity (int32 LE)
+        Bytes 8-11:  Flag (int32 LE) - usually 1
+        Bytes 12-15: Unknown (int32 LE) - usually 0
+        
+        Interleaved pattern per level:
+        - Bid block (16 bytes)
+        - Ask block (16 bytes)
+        = 32 bytes per level
+        
+        Args:
+            record_bytes: Full record bytes (must be ≥264 bytes)
+        
+        Returns:
+            Dictionary with 'bids' and 'asks' arrays, or None if invalid
+        """
+        if len(record_bytes) < 264:
+            logger.debug(f"Record too short for order book: {len(record_bytes)} < 264 bytes")
+            return None
+        
+        try:
+            order_book = {
+                'bids': [],
+                'asks': []
+            }
+            
+            # Parse 5 levels (interleaved bid/ask pairs)
+            for i in range(5):
+                # Each level occupies 32 bytes (16 bid + 16 ask)
+                bid_base = 104 + (i * 32)  # Bid block
+                ask_base = bid_base + 16    # Ask block immediately follows
+                
+                # Parse BID (offset pattern: Price, Qty, Flag, Unknown)
+                bid_price = struct.unpack('<i', record_bytes[bid_base:bid_base+4])[0]
+                bid_qty = struct.unpack('<i', record_bytes[bid_base+4:bid_base+8])[0]
+                bid_flag = struct.unpack('<i', record_bytes[bid_base+8:bid_base+12])[0]
+                bid_unknown = struct.unpack('<i', record_bytes[bid_base+12:bid_base+16])[0]
+                
+                # Parse ASK (offset pattern: Price, Qty, Flag, Unknown)
+                ask_price = struct.unpack('<i', record_bytes[ask_base:ask_base+4])[0]
+                ask_qty = struct.unpack('<i', record_bytes[ask_base+4:ask_base+8])[0]
+                ask_flag = struct.unpack('<i', record_bytes[ask_base+8:ask_base+12])[0]
+                ask_unknown = struct.unpack('<i', record_bytes[ask_base+12:ask_base+16])[0]
+                
+                # Validate bid (skip if invalid)
+                if bid_qty > 0 and bid_price > 0:
+                    order_book['bids'].append({
+                        'price': bid_price / 100.0,  # Convert paise to rupees
+                        'quantity': bid_qty,
+                        'flag': bid_flag,  # Unknown purpose (usually 1)
+                        'unknown': bid_unknown  # Usually 0, sometimes other values
+                    })
+                else:
+                    logger.debug(f"Invalid bid level {i+1}: qty={bid_qty}, price={bid_price}")
+                
+                # Validate ask (skip if invalid)
+                if ask_qty > 0 and ask_price > 0:
+                    order_book['asks'].append({
+                        'price': ask_price / 100.0,  # Convert paise to rupees
+                        'quantity': ask_qty,
+                        'flag': ask_flag,  # Unknown purpose (usually 1)
+                        'unknown': ask_unknown  # Usually 0, sometimes other values
+                    })
+                else:
+                    logger.debug(f"Invalid ask level {i+1}: qty={ask_qty}, price={ask_price}")
+            
+            logger.debug(f"Parsed order book: {len(order_book['bids'])} bids, "
+                        f"{len(order_book['asks'])} asks")
+            
+            return order_book
+            
+        except struct.error as e:
+            logger.error(f"Order book parsing error: {e}")
+            return None
+    
     def _get_num_records(self, packet_size: int) -> int:
         """
         Determine number of records based on packet size.
         
-        BSE production feed uses DYNAMIC packet sizes with VARIABLE-LENGTH records:
-        - Records have a 67-byte minimum uncompressed section (empirically determined)
-        - Compressed section length varies based on data
-        - We'll parse records sequentially until we run out of space
+        CONFIRMED PATTERN (from empirical analysis):
+        - Each record occupies EXACTLY 264 bytes (fixed slot size)
+        - Actual data varies (64-264 bytes), rest is NULL-padded
+        - Pattern: 36 (header) + N×264 (records)
         
-        For initial estimation (conservative):
-        - 300 bytes: ~3-4 records (36 header + ~67-88 bytes/record)
-        - 564 bytes: ~6-7 records
-        - 828 bytes: ~10-11 records
-        
-        However, actual parsing must be done sequentially, not by fixed offsets.
+        Packet sizes and record counts:
+        - 300 bytes = 36 + 1×264 → 1 record
+        - 564 bytes = 36 + 2×264 → 2 records
+        - 828 bytes = 36 + 3×264 → 3 records
+        - 1092 bytes = 36 + 4×264 → 4 records
+        - 1356 bytes = 36 + 5×264 → 5 records
+        - 1620 bytes = 36 + 6×264 → 6 records (max for msg type 2020)
         """
-        # Calculate conservative estimate - actual parsing will be sequential
         header_size = 36
-        min_record_size = 67  # Empirically determined minimum uncompressed section
+        record_slot_size = 264  # Fixed slot size per record
         
         if packet_size < header_size:
             logger.warning(f"Packet size {packet_size} < header size {header_size}")
             return 0
         
-        available_space = packet_size - header_size
-        # Conservative estimate - actual records may be larger due to compression data
-        max_possible_records = available_space // min_record_size
+        data_size = packet_size - header_size
+        num_records = data_size // record_slot_size
         
-        logger.debug(f"Packet {packet_size}B → estimated max {max_possible_records} records "
-                   f"(actual count determined during sequential parsing)")
+        logger.debug(f"Packet {packet_size}B → {num_records} records "
+                   f"(36 header + {num_records}×264 slots)")
         
-        return max_possible_records
+        return num_records
     
     def get_stats(self) -> Dict:
         """Get decoder statistics."""

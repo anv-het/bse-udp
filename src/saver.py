@@ -187,7 +187,7 @@ class DataSaver:
             with open(filename, 'a', newline='', encoding='utf-8') as f:
                 # Define CSV columns
                 fieldnames = [
-                    'token', 'symbol', 'timestamp',
+                    'token', 'symbol', 'symbol_name', 'expiry', 'option_type', 'strike', 'timestamp',
                     'open', 'high', 'low', 'close', 'ltp', 'volume', 'prev_close',
                     'bid_prices', 'bid_qtys', 'bid_orders',
                     'ask_prices', 'ask_qtys', 'ask_orders'
@@ -239,6 +239,10 @@ class DataSaver:
         csv_row = {
             'token': quote.get('token'),
             'symbol': quote.get('symbol'),
+            'symbol_name': quote.get('symbol_name', ''),
+            'expiry': quote.get('expiry', ''),
+            'option_type': quote.get('option_type', ''),
+            'strike': quote.get('strike', ''),
             'timestamp': quote.get('timestamp'),
             'open': quote.get('open'),
             'high': quote.get('high'),
@@ -253,8 +257,8 @@ class DataSaver:
         bid_levels = quote.get('bid_levels', [])
         if bid_levels:
             csv_row['bid_prices'] = ','.join(str(level['price']) for level in bid_levels)
-            csv_row['bid_qtys'] = ','.join(str(level['qty']) for level in bid_levels)
-            csv_row['bid_orders'] = ','.join(str(level['orders']) for level in bid_levels)
+            csv_row['bid_qtys'] = ','.join(str(level['quantity']) for level in bid_levels)
+            csv_row['bid_orders'] = ','.join(str(level.get('flag', 0)) for level in bid_levels)
         else:
             csv_row['bid_prices'] = ''
             csv_row['bid_qtys'] = ''
@@ -264,8 +268,8 @@ class DataSaver:
         ask_levels = quote.get('ask_levels', [])
         if ask_levels:
             csv_row['ask_prices'] = ','.join(str(level['price']) for level in ask_levels)
-            csv_row['ask_qtys'] = ','.join(str(level['qty']) for level in ask_levels)
-            csv_row['ask_orders'] = ','.join(str(level['orders']) for level in ask_levels)
+            csv_row['ask_qtys'] = ','.join(str(level['quantity']) for level in ask_levels)
+            csv_row['ask_orders'] = ','.join(str(level.get('flag', 0)) for level in ask_levels)
         else:
             csv_row['ask_prices'] = ''
             csv_row['ask_qtys'] = ''

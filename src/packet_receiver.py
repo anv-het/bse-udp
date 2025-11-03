@@ -77,7 +77,7 @@ class PacketReceiver:
         564: {'token_count': 2, 'offsets': [36, 300]},
         828: {'token_count': 3, 'offsets': [36, 300, 564]},
         1092: {'token_count': 4, 'offsets': [36, 300, 564, 828]},
-        1356: {'token_count': 5, 'offsets': [36, 300, 564, 828, 1092]}
+        1356: {'token_count': 5, 'offsets': [36, 300, 564, 828, 1092,1356,1620]}
     }
     
     # BSE production feed uses DYNAMIC packet sizes!

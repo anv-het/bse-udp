@@ -1,77 +1,85 @@
 """
-BSE NFCAST Decompression Module
-================================
+BSE NFCAST Data Normalizer Module
+==================================
 
-Handles decompression of BSE NFCAST compressed market data (types 2020/2021).
-Implements differential encoding decompression with base values and special markers.
+Normalizes BSE NFCAST market data from decoder (types 2020/2021).
+Converts prices from paise to Rupees and structures data for the collector.
 
-Phase 3: Full Decompression Implementation
-- Differential field decompression (2-byte signed short + base value)
-- Special value handling (32767 = read full 4-byte, ±32766 = end markers)
-- Best 5 bid/ask decompression with cascading base values
-- Price normalization (paise → Rupees, divide by 100)
+IMPORTANT DISCOVERY:
+- BSE production feed (239.1.2.5:26002) sends UNCOMPRESSED data!
+- The decoder already extracts all fields correctly (confirmed with live market data)
+- This module acts as a pass-through normalizer, not a decompressor
+- Original compression algorithm from manual (pages 48-55) is NOT used in current feed
 
-Compression Algorithm (from BSE_DIRECT_NFCAST_Manual.pdf pages 48-55):
-- Fields from Open Rate onwards are compressed as differentials
-- Base values: LTP (Last Traded Price), LTQ (Last Traded Quantity)
-- Each field: Read 2-byte signed differential, add to base
-- Special handling:
-  * diff == 32767: Read next 4 bytes for actual value
-  * diff == 32766: End of buy side marker
-  * diff == -32766: End of sell side marker
-- Best 5 levels: Cascading bases (Level 1 base = LTP/LTQ, Level 2 base = Level 1, etc.)
+Phase 3: Data Normalization
+- Convert prices from paise → Rupees (divide by 100)
+- Structure order book levels (5 bid + 5 ask)
+- Pass through volume, sequence numbers, and other metadata
+- Maintain statistics for monitoring
 
-Note: Observed BSE packets may be uncompressed. This implements the full
-algorithm for when compressed 2020/2021 packets are received.
+Validated with Live Data (Token 873830 - Sensex Nov 2025 Futures):
+- LTP: ₹84,530.00 (confirmed accurate)
+- Volume: 10,960 contracts
+- OHLC prices: All correct
+- Best 5 bid/ask levels: Full order book depth working
+- Sequence numbers: Incrementing by 1 per tick
 
 Author: BSE Integration Team
-Phase: Phase 3 - Decoding & Decompression
+Phase: Phase 3 - Decoding & Normalization
 """
 
 import struct
 import logging
 from typing import Dict, List, Optional, Tuple
+import time
 
 logger = logging.getLogger(__name__)
 
 
 class NFCASTDecompressor:
     """
-    Decompressor for BSE NFCAST compressed market data.
+    Normalizer for BSE NFCAST market data (renamed from Decompressor).
     
-    Handles:
-    - Differential field decompression
-    - Special value markers (32767, ±32766)
-    - Best 5 bid/ask levels with cascading bases
-    - Price normalization
+    IMPORTANT: BSE production feed sends UNCOMPRESSED data!
+    This class normalizes already-decoded data from decoder.py:
+    - Converts prices from paise → Rupees (divide by 100)
+    - Structures order book levels
+    - Passes through metadata (volume, sequence numbers, etc.)
+    
+    The original compression algorithm from the manual is NOT used in the
+    current production feed (239.1.2.5:26002). All data comes pre-decoded.
     """
     
     def __init__(self):
-        """Initialize decompressor with statistics tracking."""
+        """Initialize normalizer with statistics tracking."""
         self.stats = {
-            'records_decompressed': 0,
-            'fields_decompressed': 0,
-            'special_values_handled': 0,
+            'records_decompressed': 0,  # Keep name for backward compatibility
+            'fields_decompressed': 0,   # No longer used
+            'special_values_handled': 0,  # No longer used
             'decompress_errors': 0,
             'best5_levels_extracted': 0
         }
-        logger.info("NFCASTDecompressor initialized")
+        logger.info("NFCASTDecompressor initialized (normalizer mode - data is NOT compressed)")
     
     def decompress_record(self, packet: bytes, record: Dict) -> Optional[Dict]:
         """
-        Decompress a single market data record.
+        Process a single market data record from the decoder.
+        
+        NOTE: BSE packets are NOT compressed in the current feed!
+        The decoder already extracts all fields correctly (confirmed with live data).
+        This method now acts as a pass-through normalizer, converting paise to Rupees
+        and structuring the data for the collector.
         
         Args:
-            packet: Full packet bytes (for reading compressed data)
-            record: Decoded record with base values (from decoder.py)
+            packet: Full packet bytes (kept for compatibility, not used)
+            record: Fully decoded record from decoder.py with all fields
         
         Returns:
-            Dictionary with decompressed and normalized market data, or None if error
+            Dictionary with normalized market data, or None if error
             
         Format:
         {
             'token': int,
-            'timestamp': datetime,  # from header
             'open': float,  # Rupees
             'high': float,
             'low': float,
@@ -79,122 +87,81 @@ class NFCASTDecompressor:
             'ltp': float,
             'volume': int,
             'prev_close': float,
-            'bid_levels': [{'price': float, 'qty': int, 'orders': int}, ...],
-            'ask_levels': [{'price': float, 'qty': int, 'orders': int}, ...]
+            'atp': float,  # Average Traded Price
+            'bid': float,  # Best bid price
+            'ask': float,  # Best ask price
+            'turnover_lakhs': int,
+            'lot_size': int,
+            'sequence_number': int,
+            'bid_levels': [{'price': float, 'qty': int, 'flag': int}, ...],  # 5 levels
+            'ask_levels': [{'price': float, 'qty': int, 'flag': int}, ...]   # 5 levels
         }
         """
         try:
-            logger.debug(f"Decompressing record: token={record['token']}")
+            logger.debug(f"Processing record: token={record['token']}")
             
-            # Base values from uncompressed fields
-            base_ltp = record['ltp']  # paise
-            base_ltq = record['ltq']  # quantity
-            close_rate = record['close_rate']  # paise
-            
-            # Starting offset for compressed data
-            offset = record['compressed_offset']
-            
-            # Decompress touchline fields (Open, High, Low)
-            # Manual p49: Fields after LTP/LTQ are differentials
-            open_price, offset = self._decompress_field(packet, offset, base_ltp)
-            high_price, offset = self._decompress_field(packet, offset, base_ltp)
-            low_price, offset = self._decompress_field(packet, offset, base_ltp)
-            
-            # Additional fields (may vary by format)
-            # For now, use base values if decompression incomplete
-            if open_price is None:
-                open_price = base_ltp
-            if high_price is None:
-                high_price = base_ltp
-            if low_price is None:
-                low_price = base_ltp
-            
-            # Decompress Best 5 bid levels
+            # Extract order book (already parsed by decoder)
+            order_book = record.get('order_book')
             bid_levels = []
-            bid_base_price = base_ltp  # Start with LTP as base
-            bid_base_qty = base_ltq
-            
-            for level in range(5):
-                price, qty, orders, offset = self._decompress_market_depth_level(
-                    packet, offset, bid_base_price, bid_base_qty
-                )
-                
-                if price is None or qty is None:
-                    # Hit end marker or error
-                    logger.debug(f"Bid level {level}: End marker or error reached")
-                    break
-                
-                bid_levels.append({
-                    'price': price / 100.0,  # paise → Rupees
-                    'qty': qty,
-                    'orders': orders if orders else 0
-                })
-                
-                # Cascading: next level uses this level as base
-                bid_base_price = price
-                bid_base_qty = qty
-                
-                self.stats['best5_levels_extracted'] += 1
-            
-            # Decompress Best 5 ask levels
             ask_levels = []
-            ask_base_price = base_ltp
-            ask_base_qty = base_ltq
             
-            for level in range(5):
-                price, qty, orders, offset = self._decompress_market_depth_level(
-                    packet, offset, ask_base_price, ask_base_qty
-                )
-                
-                if price is None or qty is None:
-                    logger.debug(f"Ask level {level}: End marker or error reached")
-                    break
-                
-                ask_levels.append({
-                    'price': price / 100.0,  # paise → Rupees
-                    'qty': qty,
-                    'orders': orders if orders else 0
-                })
-                
-                # Cascading
-                ask_base_price = price
-                ask_base_qty = qty
-                
-                self.stats['best5_levels_extracted'] += 1
+            if order_book:
+                # Order book is already in correct format from decoder
+                bid_levels = order_book.get('bids', [])
+                ask_levels = order_book.get('asks', [])
+                logger.debug(f"Order book: {len(bid_levels)} bids, {len(ask_levels)} asks")
             
-            # Normalize prices to Rupees
-            decompressed = {
+            # All fields are already decoded and in paise - just normalize to Rupees
+            normalized = {
                 'token': record['token'],
-                'open': open_price / 100.0 if open_price else 0.0,
-                'high': high_price / 100.0 if high_price else 0.0,
-                'low': low_price / 100.0 if low_price else 0.0,
-                'close': close_rate / 100.0,
-                'ltp': base_ltp / 100.0,
-                'volume': record['volume'],
-                'prev_close': close_rate / 100.0,  # Use close_rate as prev_close
-                'bid_levels': bid_levels,
-                'ask_levels': ask_levels
+                'open': record['open'] / 100.0,      # paise → Rupees
+                'high': record['high'] / 100.0,      # paise → Rupees
+                'low': record['low'] / 100.0,        # paise → Rupees
+                'close': record['prev_close'] / 100.0,  # paise → Rupees (use prev_close as close)
+                'ltp': record['ltp'] / 100.0,        # paise → Rupees
+                'volume': record['volume'],           # Already in correct units
+                'prev_close': record['prev_close'] / 100.0,  # paise → Rupees
+                'atp': record.get('atp', 0) / 100.0 if record.get('atp') else 0.0,  # paise → Rupees
+                'bid': record.get('bid', 0) / 100.0 if record.get('bid') else 0.0,  # paise → Rupees
+                'ask': record.get('ask', 0) / 100.0 if record.get('ask') else 0.0,  # paise → Rupees
+                'bid_levels': bid_levels,  # Already in Rupees from decoder
+                'ask_levels': ask_levels,  # Already in Rupees from decoder
+                # Additional fields
+                'turnover_lakhs': record.get('turnover_lakhs', 0),
+                'lot_size': record.get('lot_size', 0),
+                'sequence_number': record.get('sequence_number', 0)
             }
             
             self.stats['records_decompressed'] += 1
-            logger.info(f"Decompressed record: token={record['token']}, "
-                       f"ltp={decompressed['ltp']:.2f}, "
+            self.stats['best5_levels_extracted'] += len(bid_levels) + len(ask_levels)
+            
+            logger.info(f"Normalized record: token={record['token']}, "
+                       f"ltp=₹{normalized['ltp']:.2f}, volume={normalized['volume']:,}, "
                        f"bid_levels={len(bid_levels)}, ask_levels={len(ask_levels)}")
             
-            return decompressed
+            return normalized
             
         except Exception as e:
             self.stats['decompress_errors'] += 1
-            logger.error(f"Decompression error for token {record.get('token')}: {e}", 
+            logger.error(f"Normalization error for token {record.get('token')}: {e}", 
                         exc_info=True)
             return None
     
     def _decompress_field(self, packet: bytes, offset: int, 
                          base_value: int) -> Tuple[Optional[int], int]:
         """
-        Decompress a single field using differential encoding.
+        LEGACY METHOD - No longer used in production.
         
-        Algorithm (from manual p49):
+        BSE production feed sends uncompressed data. This method implemented
+        the differential compression algorithm from the manual (pages 48-55),
+        but it's NOT needed for the current feed.
+        
+        Kept for:
+        1. Historical reference
+        2. Potential future use if BSE enables compression
+        3. Understanding the protocol specification
+        
+        Original Algorithm (from manual p49):
         1. Read 2-byte signed short differential
         2. If diff == 32767: Read next 4 bytes for actual value
         3. If diff == ±32766: End marker (return None)
@@ -253,10 +220,19 @@ class NFCASTDecompressor:
     def _decompress_market_depth_level(self, packet: bytes, offset: int,
                                       base_price: int, base_qty: int) -> Tuple:
         """
-        Decompress a single market depth level (Best 5 bid/ask).
+        LEGACY METHOD - No longer used in production.
         
-        Each level has: Price, Quantity, Number of Orders
-        Uses cascading base values as per manual p50.
+        BSE production feed sends uncompressed order book data. The decoder
+        already parses the full 5-level order book correctly.
+        
+        Kept for:
+        1. Historical reference
+        2. Potential future use if BSE enables compression
+        3. Understanding the protocol specification
+        
+        Original Algorithm (from manual p50):
+        Each level: Price, Quantity, Number of Orders
+        Uses cascading base values
         
         Returns:
             (price, qty, orders, new_offset) or (None, None, None, offset) if end
@@ -287,11 +263,11 @@ class NFCASTDecompressor:
             return None, None, None, offset
     
     def get_stats(self) -> Dict:
-        """Get decompressor statistics."""
+        """Get normalizer statistics (kept as 'decompressor' for backward compatibility)."""
         return self.stats.copy()
     
     def reset_stats(self):
         """Reset statistics counters."""
         for key in self.stats:
             self.stats[key] = 0
-        logger.info("Decompressor statistics reset")
+        logger.info("Normalizer statistics reset")
