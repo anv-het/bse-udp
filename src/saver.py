@@ -132,8 +132,9 @@ class DataSaver:
         # Generate filename
         if date_str is None:
             date_str = datetime.now().strftime('%Y%m%d')
-        filename = self.json_dir / f"{date_str}_quotes.json"
-        
+            time_str = datetime.now().strftime('%H%M%S')
+        filename = self.json_dir / f"{date_str}_{time_str}_quotes.json"
+
         try:
             # Append mode - add new quotes to existing file
             with open(filename, 'a', encoding='utf-8') as f:
@@ -204,6 +205,9 @@ class DataSaver:
                 for quote in quotes:
                     # Flatten Best 5 levels to comma-separated strings
                     csv_row = self._flatten_quote_for_csv(quote)
+                    # Wrap timestamp in Excel formula to prevent auto-formatting
+                    if 'timestamp' in csv_row and csv_row['timestamp']:
+                        csv_row['timestamp'] = f'="{csv_row["timestamp"]}"'
                     writer.writerow(csv_row)
                     self.stats['quotes_written_csv'] += 1
             
