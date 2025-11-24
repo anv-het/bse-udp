@@ -44,6 +44,7 @@ from decoder import PacketDecoder
 from decompressor import NFCASTDecompressor
 from data_collector import MarketDataCollector
 from saver import DataSaver
+from database import DatabaseHandler
 
 logger = logging.getLogger(__name__)
 
@@ -138,10 +139,15 @@ class PacketReceiver:
         self.collector = MarketDataCollector(token_map)
         self.saver = DataSaver(output_dir='data')
         
+        # # Phase 3: Initialize database handler (NEW)
+        # db_path = config.get('db_path', 'data/bse_market.db')
+        # self.database = DatabaseHandler(db_path=db_path)
+        
         logger.info(f"PacketReceiver initialized - storing up to {self.store_limit} packets")
         logger.info(f"Raw packets: {self.raw_packets_dir}")
         logger.info(f"Processed JSON: {self.processed_json_dir}")
-        logger.info(f"Phase 3 pipeline enabled: decode → decompress → collect → save")
+        # logger.info(f"Database: {db_path}")
+        logger.info(f"Phase 3 pipeline enabled: decode → decompress → collect → save → database")
         logger.info(f"Token map loaded: {len(token_map)} tokens")
     
     def receive_loop(self, max_packets: Optional[int] = None):
@@ -323,6 +329,14 @@ class PacketReceiver:
                 logger.info(f"✓ Phase 3 pipeline complete: {len(quotes)} quotes saved")
             else:
                 logger.warning("Failed to save some quotes")
+            
+            # # Step 5: Save to SQLite Database (NEW)
+            # date_str = datetime.now().strftime('%Y%m%d')
+            # db_success = self.database.save_quotes(quotes, date_str=date_str)
+            # if db_success:
+            #     logger.info(f"✓ Saved {len(quotes)} quotes to database: {date_str}")
+            # else:
+            #     logger.warning("Failed to save quotes to database")
         
         except Exception as e:
             logger.error(f"Error in Phase 3 pipeline: {e}", exc_info=True)
@@ -581,6 +595,12 @@ class PacketReceiver:
         for key, value in saver_stats.items():
             logger.info(f"  {key}: {value:,}")
         
+        # # Print Database statistics (NEW)
+        # db_stats = self.database.get_stats()
+        # logger.info("Database Handler:")
+        # for key, value in db_stats.items():
+        #     logger.info(f"  {key}: {value:,}")
+          
         logger.info("=" * 70)
 
 
