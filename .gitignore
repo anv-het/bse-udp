@@ -27,3 +27,5 @@ bse_reader.log
 
 # Remove cached __pycache__ and .pyc files from git
 git rm --cached -r __pycache__ *.pyc
+
+*/data/
