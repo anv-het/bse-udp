@@ -89,7 +89,7 @@ class PacketReceiver:
     HEADER_SIZE = 36
     RECORD_SIZE = 64  # Each instrument record is 64 bytes
     
-    def __init__(self, sock: socket.socket, config: dict, token_map: Dict[str, dict]):
+    def __init__(self, sock: socket.socket, config: dict, token_map: Dict[str, dict], segment: str = None):
         """
         Initialize packet receiver with Phase 3 components.
         
@@ -97,9 +97,11 @@ class PacketReceiver:
             sock: Connected UDP multicast socket
             config: Configuration dictionary with storage paths and limits
             token_map: Dictionary mapping token IDs to contract details (for symbol resolution)
+            segment: Segment identifier ('CM', 'FO', or None) for file naming
         """
         self.socket = sock
         self.config = config
+        self.segment = segment  # 'CM', 'FO', or None
         
         # Setup storage directories
         self.raw_packets_dir = Path(config.get('raw_packets_dir', 'data/raw_packets'))
@@ -136,14 +138,15 @@ class PacketReceiver:
         # Phase 3: Initialize decoder, decompressor, collector, saver
         self.decoder = PacketDecoder()
         self.decompressor = NFCASTDecompressor()
-        self.collector = MarketDataCollector(token_map)
-        self.saver = DataSaver(output_dir='data')
+        self.collector = MarketDataCollector(token_map, segment=segment)  # Pass segment for CM/FO differentiation
+        self.saver = DataSaver(output_dir='data', segment=segment)
         
         # # Phase 3: Initialize database handler (NEW)
         # db_path = config.get('db_path', 'data/bse_market.db')
         # self.database = DatabaseHandler(db_path=db_path)
         
-        logger.info(f"PacketReceiver initialized - storing up to {self.store_limit} packets")
+        segment_info = f" [{segment}]" if segment else ""
+        logger.info(f"PacketReceiver{segment_info} initialized - storing up to {self.store_limit} packets")
         logger.info(f"Raw packets: {self.raw_packets_dir}")
         logger.info(f"Processed JSON: {self.processed_json_dir}")
         # logger.info(f"Database: {db_path}")

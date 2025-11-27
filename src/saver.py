@@ -52,13 +52,14 @@ class DataSaver:
     - Append mode (add to existing files)
     - Statistics tracking (files saved, quotes written, errors)
     - Configurable output formats
+    - Segment-specific file naming (CM/FO)
     
     File naming convention:
-    - YYYYMMDD_quotes.json (e.g., 20250120_quotes.json)
-    - YYYYMMDD_quotes.csv (e.g., 20250120_quotes.csv)
+    - YYYYMMDD_SEGMENT_quotes.json (e.g., 20250120_CM_quotes.json, 20250120_FO_quotes.json)
+    - YYYYMMDD_SEGMENT_quotes.csv (e.g., 20250120_CM_quotes.csv, 20250120_FO_quotes.csv)
     """
     
-    def __init__(self, output_dir: str = 'data'):
+    def __init__(self, output_dir: str = 'data', segment: str = None):
         """
         Initialize data saver with output directory.
         
@@ -68,10 +69,12 @@ class DataSaver:
         
         Args:
             output_dir: Base directory for output files (default: 'data')
+            segment: Segment identifier for file naming ('CM', 'FO', or None for combined)
         """
         self.output_dir = Path(output_dir)
         self.json_dir = self.output_dir / 'processed_json'
         self.csv_dir = self.output_dir / 'processed_csv'
+        self.segment = segment  # 'CM', 'FO', or None
         
         # Create directories
         self._create_directories()
@@ -85,7 +88,8 @@ class DataSaver:
             'io_errors': 0
         }
         
-        logger.info(f"DataSaver initialized - JSON: {self.json_dir}, CSV: {self.csv_dir}")
+        segment_info = f" [{segment}]" if segment else ""
+        logger.info(f"DataSaver initialized{segment_info} - JSON: {self.json_dir}, CSV: {self.csv_dir}")
     
     def _create_directories(self):
         """
@@ -129,11 +133,16 @@ class DataSaver:
             logger.debug("No quotes to save to JSON")
             return True
         
-        # Generate filename
+        # Generate filename with segment
         if date_str is None:
             date_str = datetime.now().strftime('%Y%m%d')
             time_str = datetime.now().strftime('%H%M%S')
-        filename = self.json_dir / f"{date_str}_{time_str}_quotes.json"
+        
+        # Build filename with segment suffix
+        if self.segment:
+            filename = self.json_dir / f"{date_str}_{time_str}_{self.segment}_quotes.json"
+        else:
+            filename = self.json_dir / f"{date_str}_{time_str}_quotes.json"
 
         try:
             # Append mode - add new quotes to existing file
@@ -157,11 +166,12 @@ class DataSaver:
         """
         Save quotes to CSV file with headers.
         
-        CSV columns:
-        - token, symbol, timestamp
-        - open, high, low, close, ltp, volume, prev_close
-        - bid_prices, bid_qtys, bid_orders (comma-separated Best 5)
-        - ask_prices, ask_qtys, ask_orders (comma-separated Best 5)
+        CSV columns match test_live_token.py output format:
+        - token, symbol, symbol_name, expiry, option_type, strike, timestamp
+        - ltp, open, high, low, prev_close, atp
+        - volume, turnover_lakhs, lot_size, seq
+        - bid_prices, bid_qtys, bid_orders (pipe-separated Best 5)
+        - ask_prices, ask_qtys, ask_orders (pipe-separated Best 5)
         
         File is appended if it exists (header written only on creation).
         
@@ -176,23 +186,40 @@ class DataSaver:
             logger.debug("No quotes to save to CSV")
             return True
         
-        # Generate filename
+        # Generate filename with segment
         if date_str is None:
             date_str = datetime.now().strftime('%Y%m%d')
-        filename = self.csv_dir / f"{date_str}_quotes.csv"
+        
+        # Build filename with segment suffix
+        if self.segment:
+            filename = self.csv_dir / f"{date_str}_{self.segment}_quotes.csv"
+        else:
+            filename = self.csv_dir / f"{date_str}_quotes.csv"
         
         # Check if file exists (determines if header needed)
         file_exists = filename.exists()
         
         try:
             with open(filename, 'a', newline='', encoding='utf-8') as f:
-                # Define CSV columns
-                fieldnames = [
-                    'token', 'symbol', 'symbol_name', 'expiry', 'option_type', 'strike', 'timestamp',
-                    'open', 'high', 'low', 'close', 'ltp', 'volume', 'prev_close',
-                    'bid_prices', 'bid_qtys', 'bid_orders',
-                    'ask_prices', 'ask_qtys', 'ask_orders'
-                ]
+                # Define CSV columns - segment-aware
+                if self.segment == 'CM':
+                    # CM (Equity): No expiry, option_type, strike columns
+                    fieldnames = [
+                        'timestamp', 'token', 'symbol', 'symbol_name',
+                        'ltp', 'open', 'high', 'low', 'prev_close', 'atp',
+                        'volume', 'turnover_lakhs', 'seq',
+                        'bid_prices', 'bid_qtys', 'bid_orders',
+                        'ask_prices', 'ask_qtys', 'ask_orders'
+                    ]
+                else:
+                    # FO (Derivatives): Full columns with expiry, option_type, strike, lot_size
+                    fieldnames = [
+                        'timestamp', 'token', 'symbol', 'symbol_name', 'expiry', 'option_type', 'strike',
+                        'ltp', 'open', 'high', 'low', 'prev_close', 'atp',
+                        'volume', 'turnover_lakhs', 'lot_size', 'seq',
+                        'bid_prices', 'bid_qtys', 'bid_orders',
+                        'ask_prices', 'ask_qtys', 'ask_orders'
+                    ]
                 
                 writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
                 
@@ -205,9 +232,7 @@ class DataSaver:
                 for quote in quotes:
                     # Flatten Best 5 levels to comma-separated strings
                     csv_row = self._flatten_quote_for_csv(quote)
-                    # Wrap timestamp in Excel formula to prevent auto-formatting
-                    if 'timestamp' in csv_row and csv_row['timestamp']:
-                        csv_row['timestamp'] = f'="{csv_row["timestamp"]}"'
+                    # Keep timestamp as plain text (no Excel formula wrapping)
                     writer.writerow(csv_row)
                     self.stats['quotes_written_csv'] += 1
             
@@ -224,15 +249,16 @@ class DataSaver:
         """
         Flatten quote dictionary for CSV output.
         
-        Converts Best 5 bid/ask levels (list of dicts) into comma-separated strings:
+        Converts Best 5 bid/ask levels (list of dicts) into pipe-separated strings
+        (matching test_live_token.py format):
         - bid_levels → bid_prices, bid_qtys, bid_orders
         - ask_levels → ask_prices, ask_qtys, ask_orders
         
         Example:
-        bid_levels: [{'price': 86500, 'qty': 100, 'orders': 5}, ...]
-        → bid_prices: "86500,86499,86498,86497,86496"
-        → bid_qtys: "100,200,300,150,250"
-        → bid_orders: "5,10,8,6,12"
+        bid_levels: [{'price': 86500, 'quantity': 100, 'flag': 5}, ...]
+        → bid_prices: "86500|86499|86498|86497|86496"
+        → bid_qtys: "100|200|300|150|250"
+        → bid_orders: "5|10|8|6|12"
         
         Args:
             quote: Normalized quote dictionary with bid_levels/ask_levels
@@ -241,39 +267,42 @@ class DataSaver:
             Flattened dictionary suitable for CSV writing
         """
         csv_row = {
+            'timestamp': quote.get('timestamp'),
             'token': quote.get('token'),
             'symbol': quote.get('symbol'),
             'symbol_name': quote.get('symbol_name', ''),
             'expiry': quote.get('expiry', ''),
             'option_type': quote.get('option_type', ''),
             'strike': quote.get('strike', ''),
-            'timestamp': quote.get('timestamp'),
+            'ltp': quote.get('ltp'),
             'open': quote.get('open'),
             'high': quote.get('high'),
             'low': quote.get('low'),
-            'close': quote.get('close'),
-            'ltp': quote.get('ltp'),
+            'prev_close': quote.get('prev_close'),
+            'atp': quote.get('atp', 0.0),
             'volume': quote.get('volume'),
-            'prev_close': quote.get('prev_close')
+            'turnover_lakhs': quote.get('turnover_lakhs', 0),
+            'lot_size': quote.get('lot_size', 0),
+            'seq': quote.get('sequence_number', 0)
         }
         
-        # Flatten bid levels
+        # Flatten bid levels - use pipe separator to match test_live_token.py format
         bid_levels = quote.get('bid_levels', [])
         if bid_levels:
-            csv_row['bid_prices'] = ','.join(str(level['price']) for level in bid_levels)
-            csv_row['bid_qtys'] = ','.join(str(level['quantity']) for level in bid_levels)
-            csv_row['bid_orders'] = ','.join(str(level.get('flag', 0)) for level in bid_levels)
+            csv_row['bid_prices'] = '|'.join(str(level['price']) for level in bid_levels)
+            csv_row['bid_qtys'] = '|'.join(str(level['quantity']) for level in bid_levels)
+            csv_row['bid_orders'] = '|'.join(str(level.get('flag', 0)) for level in bid_levels)
         else:
             csv_row['bid_prices'] = ''
             csv_row['bid_qtys'] = ''
             csv_row['bid_orders'] = ''
         
-        # Flatten ask levels
+        # Flatten ask levels - use pipe separator to match test_live_token.py format
         ask_levels = quote.get('ask_levels', [])
         if ask_levels:
-            csv_row['ask_prices'] = ','.join(str(level['price']) for level in ask_levels)
-            csv_row['ask_qtys'] = ','.join(str(level['quantity']) for level in ask_levels)
-            csv_row['ask_orders'] = ','.join(str(level.get('flag', 0)) for level in ask_levels)
+            csv_row['ask_prices'] = '|'.join(str(level['price']) for level in ask_levels)
+            csv_row['ask_qtys'] = '|'.join(str(level['quantity']) for level in ask_levels)
+            csv_row['ask_orders'] = '|'.join(str(level.get('flag', 0)) for level in ask_levels)
         else:
             csv_row['ask_prices'] = ''
             csv_row['ask_qtys'] = ''

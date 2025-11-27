@@ -1,41 +1,29 @@
 """
-BSE UDP Market Data Reader - Main Application
-==============================================
+BSE UDP Market Data Reader - Dual Feed Implementation
+======================================================
 
-Phase 1-3 Complete: Full pipeline from UDP multicast to JSON/CSV output
+Supports simultaneous connections to:
+- Port 26001: Equity Cash (CM) - ~4,689 stocks
+- Port 26002: Derivatives (F&O) - ~40,000 contracts
 
-This script:
-1. Loads configuration and token map (contract master)
-2. Establishes UDP multicast connection to BSE NFCAST
-3. Receives packets and filters for types 2020/2021
-4. **Phase 3: Decodes packet headers and base values**
-5. **Phase 3: Decompresses NFCAST differential fields**
-6. **Phase 3: Collects normalized quotes with symbol resolution**
-7. **Phase 3: Saves to JSON/CSV with timestamps**
-8. Handles graceful shutdown with comprehensive statistics
+Features:
+- Configurable enable/disable for each segment via config.json
+- Separate CSV files for each segment (YYYYMMDD_CM_quotes.csv, YYYYMMDD_FO_quotes.csv)
+- Unified token mapping from BhavCopy + Contract Master CSVs
+- NO dependency on token_details.json
+- Proper Ctrl+C termination on Windows
 
-Completed:
-- Phase 1: Project structure and UDP multicast connection
-- Phase 2: Packet receiving, filtering, token extraction, storage
-- **Phase 3: Full decoding, decompression, normalization, and output**
-
-Future phases:
-- Phase 4: BOLTPLUS authentication
-- Phase 5: Contract master synchronization via API
+Configuration (config.json):
+    "segments": {
+        "cm_enabled": true,   // Enable Equity Cash feed (port 26001)
+        "fo_enabled": true    // Enable Derivatives feed (port 26002)
+    }
 
 Usage:
     python src/main.py
 
-Requirements:
-- config.json in project root
-- data/tokens/token_details.json (contract master with ~29k tokens)
-- Network access to BSE multicast (simulation: 226.1.0.1:11401)
-- IGMPv2 multicast support on network interface
-- BSE Market hours: 9:00 AM - 3:30 PM IST (Mon-Fri)
-
 Author: BSE Integration Team
-Phase: Phase 3 - COMPLETE
-Date: January 2025
+Date: November 2025
 """
 
 import sys
@@ -43,12 +31,15 @@ import json
 import logging
 import signal
 import socket
+import threading
+import time
 from pathlib import Path
+from typing import Dict, Optional
 
 # Add src directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from connection import create_connection, BSEMulticastConnection
+from connection import BSEMulticastConnection
 from packet_receiver import PacketReceiver
 
 # Configure logging
@@ -62,278 +53,400 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global flag for graceful shutdown
-running = True
+# Global shutdown event for thread coordination
+shutdown_event = threading.Event()
 
 
 def signal_handler(signum, frame):
-    """Handle Ctrl+C gracefully."""
-    global running
+    """Handle Ctrl+C gracefully - works on Windows."""
     logger.info("\n⚠ Shutdown signal received (Ctrl+C)")
-    running = False
+    shutdown_event.set()  # Signal all threads to stop
+    # Force exit after a short delay if threads don't stop
+    def force_exit():
+        time.sleep(2)
+        if not shutdown_event.is_set():
+            return
+        logger.info("Force exiting...")
+        import os
+        os._exit(0)
+    threading.Thread(target=force_exit, daemon=True).start()
 
 
 def load_config(config_path: str = 'config.json') -> dict:
-    """
-    Load configuration from JSON file.
-    
-    Args:
-        config_path: Path to configuration file
-    
-    Returns:
-        dict: Configuration dictionary
-    
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        json.JSONDecodeError: If config file is invalid JSON
-    """
+    """Load configuration from JSON file."""
     try:
         logger.info(f"Loading configuration from {config_path}...")
         with open(config_path, 'r') as f:
             config = json.load(f)
         
-        # Log configuration (without sensitive data)
-        multicast = config.get('multicast', {})
+        # Log segment configuration
+        segments = config.get('segments', {})
+        cm_enabled = segments.get('cm_enabled', False)
+        fo_enabled = segments.get('fo_enabled', False)
+        
         logger.info(f"✓ Configuration loaded successfully")
-        logger.info(f"  Environment: {multicast.get('env', 'unknown')}")
-        logger.info(f"  Segment: {multicast.get('segment', 'unknown')}")
-        logger.info(f"  Multicast IP: {multicast.get('ip', 'unknown')}")
-        logger.info(f"  Port: {multicast.get('port', 'unknown')}")
-        logger.info(f"  Buffer Size: {config.get('buffer_size', 2000)} bytes")
+        logger.info(f"  Segments enabled:")
+        logger.info(f"    CM (Equity Cash, port 26001): {'✅ ENABLED' if cm_enabled else '❌ DISABLED'}")
+        logger.info(f"    FO (Derivatives, port 26002): {'✅ ENABLED' if fo_enabled else '❌ DISABLED'}")
         
         return config
         
     except FileNotFoundError:
         logger.error(f"✗ Configuration file not found: {config_path}")
-        logger.error("  Please ensure config.json exists in project root")
         raise
     except json.JSONDecodeError as e:
         logger.error(f"✗ Invalid JSON in configuration file: {e}")
         raise
 
 
-def load_token_map(token_path: str = 'data/tokens/token_details.json') -> dict:
+def load_token_map_unified(use_api: bool = True, keep_days: int = 2) -> dict:
     """
-    Load token mapping (contract master) from JSON file.
+    Load unified token mapping from BSE daily CSV files.
     
-    Token map maps BSE token IDs to contract details (symbol, expiry, strike, etc.)
-    Used by Phase 3 data collector to resolve tokens to symbols.
-    
-    Args:
-        token_path: Path to token details file
-    
-    Returns:
-        dict: Token mapping {token_id: {symbol, expiry, option_type, strike_price, ...}, ...}
-    
-    Raises:
-        FileNotFoundError: If token file doesn't exist
-        json.JSONDecodeError: If token file is invalid JSON
+    Uses BSETokenMapper to combine:
+    - BhavCopy CSV (Equity Cash, port 26001) - ~4,689 stocks
+    - Contract Master CSV (F&O, port 26002) - ~40,000 derivatives
     """
     try:
-        logger.info(f"Loading token map from {token_path}...")
-        with open(token_path, 'r') as f:
-            token_map = json.load(f)
+        from token_mapper import BSETokenMapper
         
-        logger.info(f"✓ Token map loaded successfully: {len(token_map):,} tokens")
+        logger.info("=" * 80)
+        logger.info("📥 LOADING UNIFIED TOKEN MAPPER (No JSON dependency)")
+        logger.info("=" * 80)
         
-        # Log sample tokens for verification
-        sample_tokens = list(token_map.keys())[:3]
-        logger.info(f"  Sample tokens: {', '.join(sample_tokens)}")
+        mapper = BSETokenMapper()
+        
+        if use_api:
+            logger.info("Updating token mappings from BSE API...")
+            success = mapper.update_all(keep_days=keep_days)
+            
+            if not success:
+                logger.warning("⚠️  API fetch failed, trying cached files...")
+                mapper.load_from_cache()
+        else:
+            logger.info("Loading from cached CSV files (API disabled)...")
+            mapper.load_from_cache()
+        
+        # Build token_map dict
+        token_map = {}
+        
+        # Add Equity tokens
+        for token_str, contract in mapper.equity_fetcher.contracts.items():
+            token_map[token_str] = {
+                'symbol': contract['symbol'],
+                'segment': 'EQ',
+                'company_name': contract.get('company_name', ''),
+                'isin': contract.get('isin', '')
+            }
+        
+        # Add F&O tokens
+        for token_str, contract in mapper.contract_manager.contracts.items():
+            token_map[token_str] = {
+                'symbol': contract['symbol'],
+                'expiry': contract.get('expiry', ''),
+                'option_type': contract.get('option_type', ''),
+                'strike_price': contract.get('strike', ''),
+                'lot_size': contract.get('lot_size', ''),
+                'instrument_name': contract.get('instrument_name', ''),
+                'full_name': contract.get('full_name', ''),
+                'contract_type': contract.get('contract_type', ''),
+                'segment': 'FO'
+            }
+        
+        logger.info(f"✅ Unified token map loaded: {len(token_map):,} total contracts")
+        logger.info(f"   Equity Cash: {mapper.stats['equity_tokens']:,} stocks")
+        logger.info(f"   Derivatives: {mapper.stats['fo_tokens']:,} F&O contracts")
+        logger.info("=" * 80)
         
         return token_map
         
-    except FileNotFoundError:
-        logger.error(f"✗ Token map file not found: {token_path}")
-        logger.error("  Please ensure token_details.json exists in data/tokens/")
-        logger.warning("  Continuing without token map (symbols will be 'UNKNOWN')")
-        return {}
+    except Exception as e:
+        logger.error(f"❌ Failed to load unified token map: {e}")
+        logger.error("Falling back to legacy F&O-only loader...")
+        return load_token_map_legacy(use_api)
+
+
+def load_token_map_legacy(use_api: bool = True) -> dict:
+    """LEGACY: Load token mapping from BSE daily CSV (F&O only)."""
+    try:
+        from contract_manager import BSEContractManager
         
-    except json.JSONDecodeError as e:
-        logger.error(f"✗ Invalid JSON in token map file: {e}")
-        logger.warning("  Continuing without token map (symbols will be 'UNKNOWN')")
+        logger.info("=" * 80)
+        logger.info("📥 LOADING BSE CONTRACT MASTER (F&O Only - Legacy)")
+        logger.info("=" * 80)
+        
+        api_url = "http://192.168.102.166:2060/v1/sftp-files"
+        manager = BSEContractManager(api_url)
+        
+        if use_api:
+            manager.update_contracts()
+        
+        fetcher = manager.load_latest_contracts()
+        
+        token_map = {}
+        for token_str, contract in fetcher.contracts.items():
+            token_map[token_str] = {
+                'symbol': contract['symbol'],
+                'expiry': contract['expiry'],
+                'option_type': contract['option_type'],
+                'strike_price': contract['strike'],
+                'lot_size': contract['lot_size'],
+                'instrument_name': contract['instrument_name'],
+                'full_name': contract['full_name'],
+                'contract_type': contract['contract_type'],
+                'segment': 'FO'
+            }
+        
+        logger.info(f"✅ Token map loaded: {len(token_map):,} F&O contracts")
+        logger.info("=" * 80)
+        
+        return token_map
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to load F&O contracts: {e}")
         return {}
 
 
-def receive_packets(sock, buffer_size: int = 2000):
+def create_segment_connection(config: dict, segment: str) -> BSEMulticastConnection:
     """
-    Main packet receive loop (Phase 1: logging only).
-    
-    In Phase 1, this function:
-    - Receives UDP packets continuously
-    - Logs packet length and address
-    - Does NOT process/decode packets yet (future phase)
+    Create connection for a specific segment.
     
     Args:
-        sock: Connected UDP socket
-        buffer_size: Size of receive buffer (default: 2000 bytes)
+        config: Configuration dictionary
+        segment: 'CM' for Equity Cash, 'FO' for Derivatives
     
-    Note:
-        This is a placeholder loop. Future phases will add:
-        - Packet validation and parsing
-        - Data extraction and normalization
-        - JSON/CSV output
+    Returns:
+        BSEMulticastConnection configured for the segment
     """
-    global running
+    if segment == 'CM':
+        mc_config = config.get('multicast_cm', {})
+    else:  # 'FO'
+        mc_config = config.get('multicast_fo', config.get('multicast', {}))
     
-    logger.info("\n" + "="*70)
-    logger.info("📡 Starting packet receive loop...")
-    logger.info("="*70)
-    logger.info("Phase 1: Logging packet information only (no processing)")
-    logger.info("Press Ctrl+C to stop\n")
-    
-    packet_count = 0
-    total_bytes = 0
-    
-    try:
-        while running:
-            try:
-                # Receive packet from UDP socket
-                # recvfrom() returns (data, address)
-                packet, address = sock.recvfrom(buffer_size)
-                
-                packet_count += 1
-                packet_size = len(packet)
-                total_bytes += packet_size
-                
-                # Log packet information (Phase 1: basic info only)
-                if packet_count % 10 == 0:  # Log every 10th packet to reduce noise
-                    logger.info(
-                        f"📦 Packet #{packet_count}: "
-                        f"Size={packet_size} bytes, "
-                        f"From={address[0]}:{address[1]}, "
-                        f"Total={total_bytes:,} bytes received"
-                    )
-                
-                # Phase 1: No processing yet - just receive and log
-                # Future phases will add:
-                # - decoded_data = decoder.decode_packet(packet)
-                # - quotes = data_collector.collect_quotes(decoded_data)
-                # - saver.save_json(quotes)
-                # - saver.save_csv(quotes)
-                
-            except socket.timeout:
-                # This shouldn't happen (no timeout set), but handle anyway
-                logger.warning("⏱ Socket timeout - waiting for packets...")
-                continue
-                
-            except socket.error as e:
-                logger.error(f"✗ Socket error: {e}")
-                break
-                
-    except KeyboardInterrupt:
-        # Handled by signal handler
-        pass
-    
-    finally:
-        # Log final statistics
-        logger.info("\n" + "="*70)
-        logger.info("📊 Session Statistics:")
-        logger.info("="*70)
-        logger.info(f"Total Packets Received: {packet_count:,}")
-        logger.info(f"Total Bytes Received: {total_bytes:,}")
-        if packet_count > 0:
-            logger.info(f"Average Packet Size: {total_bytes / packet_count:.1f} bytes")
-        logger.info("="*70)
+    return BSEMulticastConnection(
+        multicast_ip=mc_config.get('ip', '239.1.2.5'),
+        port=mc_config.get('port', 26001 if segment == 'CM' else 26002),
+        buffer_size=config.get('buffer_size', 2048)
+    )
 
 
-def main():
+def run_segment_receiver(
+    config: dict,
+    token_map: dict,
+    segment: str,
+    connection: BSEMulticastConnection
+):
     """
-    Main application entry point - Phase 1-3 Complete Implementation.
+    Run packet receiver for a specific segment in a thread.
     
-    Workflow:
-    1. Load configuration and token map (contract master)
-    2. Create and establish UDP multicast connection
-    3. Initialize packet receiver with Phase 3 pipeline
-    4. Enter receive loop (decode → decompress → collect → save)
-    5. Handle graceful shutdown with comprehensive statistics
+    Args:
+        config: Configuration dictionary
+        token_map: Token mapping dictionary
+        segment: 'CM' or 'FO'
+        connection: BSEMulticastConnection for this segment
     """
-    # Register signal handler for Ctrl+C
-    signal.signal(signal.SIGINT, signal_handler)
-    
-    logger.info("\n" + "="*70)
-    logger.info("🚀 BSE UDP Market Data Reader - Phase 1-3 COMPLETE")
-    logger.info("="*70)
-    logger.info("Purpose: Full pipeline from UDP multicast to JSON/CSV output")
-    logger.info("Status: Phase 3 - Decode, Decompress, Normalize, Save")
-    logger.info("="*70 + "\n")
-    
-    connection = None
-    sock = None
+    segment_name = "Equity Cash" if segment == 'CM' else "Derivatives (F&O)"
+    port = 26001 if segment == 'CM' else 26002
     
     try:
-        # Step 1: Load configuration
-        config = load_config('config.json')
+        logger.info(f"[{segment}] Starting {segment_name} receiver on port {port}...")
         
-        # Step 2: Load token map (contract master for symbol resolution)
-        token_map = load_token_map('data/tokens/token_details.json')
-        
-        # Step 3: Create connection object
-        logger.info("\n📡 Creating BSE multicast connection...")
-        connection = create_connection(config)
-        
-        # Step 4: Establish connection
-        logger.info("\n🔌 Establishing UDP multicast connection...")
+        # Connect
         sock = connection.connect()
         
-        # Success! Connection established
-        logger.info("\n" + "="*70)
-        logger.info("✅ CONNECTION ESTABLISHED TO BSE NFCAST")
-        logger.info("="*70)
-        logger.info(f"✓ Connected to: {config['multicast']['ip']}:{config['multicast']['port']}")
-        logger.info(f"✓ Segment: {config['multicast']['segment']}")
-        logger.info(f"✓ Environment: {config['multicast']['env']}")
-        logger.info(f"✓ Buffer Size: {config.get('buffer_size', 2000)} bytes")
-        logger.info(f"✓ Protocol: IGMPv2 multicast")
-        logger.info(f"✓ Token Map: {len(token_map):,} tokens loaded")
-        logger.info("="*70 + "\n")
+        logger.info(f"[{segment}] ✅ Connected to 239.1.2.5:{port}")
         
-        # Step 5: Initialize packet receiver with Phase 3 pipeline
-        logger.info("📦 Initializing packet receiver with Phase 3 pipeline...")
+        # Initialize receiver with segment
         receiver_config = {
             'raw_packets_dir': 'data/raw_packets',
             'processed_json_dir': 'data/processed_json',
             'store_limit': config.get('store_limit', 100),
             'timeout': config.get('timeout', 30)
         }
-        receiver = PacketReceiver(sock, receiver_config, token_map)
-        logger.info("✓ Packet receiver initialized")
-        logger.info("✓ Phase 3 pipeline enabled: decode → decompress → collect → save\n")
         
-        # Step 6: Enter receive loop
-        # This will:
-        # - Receive packets continuously
-        # - Filter for types 2020/2021
-        # - Decode headers + base values
-        # - Decompress differential fields
-        # - Collect normalized quotes
-        # - Save to JSON/CSV
-        # - Store raw packets + metadata (Phase 2 compatibility)
-        receiver.receive_loop()
+        # Filter token map for this segment
+        segment_token_map = {
+            k: v for k, v in token_map.items()
+            if v.get('segment') == ('EQ' if segment == 'CM' else 'FO')
+        }
+        
+        # If segment filter results in empty map, use full map
+        if not segment_token_map:
+            segment_token_map = token_map
+            logger.warning(f"[{segment}] Using full token map (no segment-specific tokens found)")
+        else:
+            logger.info(f"[{segment}] Using {len(segment_token_map):,} tokens for {segment}")
+        
+        receiver = PacketReceiver(sock, receiver_config, segment_token_map, segment=segment)
+        
+        logger.info(f"[{segment}] 📦 Receiver initialized")
+        logger.info(f"[{segment}] 📁 CSV output: data/processed_csv/YYYYMMDD_{segment}_quotes.csv")
+        
+        # Run receive loop with shutdown check
+        while not shutdown_event.is_set():
+            try:
+                # Receive with short timeout to check shutdown_event frequently
+                sock.settimeout(0.5)
+                packet, addr = sock.recvfrom(2000)
+                receiver._process_packet(packet, addr)
+                receiver.stats['packets_received'] += 1
+                receiver.stats['bytes_received'] += len(packet)
+                
+                # Log every 10 packets
+                if receiver.stats['packets_received'] % 10 == 0:
+                    logger.info(
+                        f"[{segment}] 📦 Packets: {receiver.stats['packets_received']}, "
+                        f"Valid: {receiver.stats['packets_valid']}, "
+                        f"Type 2020: {receiver.stats['packets_2020']}"
+                    )
+            except socket.timeout:
+                continue  # Check shutdown_event and retry
+            except Exception as e:
+                if not shutdown_event.is_set():
+                    logger.error(f"[{segment}] Receive error: {e}")
+                break
+        
+        logger.info(f"[{segment}] 🛑 Receiver stopped (shutdown requested)")
+        
+    except Exception as e:
+        logger.error(f"[{segment}] ❌ Error in receiver: {e}")
+    finally:
+        if connection:
+            connection.disconnect()
+            logger.info(f"[{segment}] 🔌 Disconnected")
+
+
+def main():
+    """
+    Main application entry point - Dual Feed Implementation.
+    
+    Workflow:
+    1. Load configuration
+    2. Check which segments are enabled
+    3. Load unified token map
+    4. Create connections for enabled segments
+    5. Start receiver threads
+    6. Wait for shutdown signal
+    """
+    # Register signal handler for Ctrl+C (works on Windows)
+    signal.signal(signal.SIGINT, signal_handler)
+    try:
+        signal.signal(signal.SIGBREAK, signal_handler)  # Windows-specific
+    except AttributeError:
+        pass  # Not on Windows
+    
+    logger.info("\n" + "=" * 70)
+    logger.info("🚀 BSE UDP Market Data Reader - DUAL FEED")
+    logger.info("=" * 70)
+    logger.info("Purpose: Simultaneous CM + F&O data collection")
+    logger.info("Outputs: YYYYMMDD_CM_quotes.csv, YYYYMMDD_FO_quotes.csv")
+    logger.info("=" * 70 + "\n")
+    
+    connections = []
+    threads = []
+    
+    try:
+        # Step 1: Load configuration
+        config = load_config('config.json')
+        
+        # Step 2: Check enabled segments
+        segments = config.get('segments', {})
+        cm_enabled = segments.get('cm_enabled', False)
+        fo_enabled = segments.get('fo_enabled', False)
+        
+        if not cm_enabled and not fo_enabled:
+            logger.error("❌ No segments enabled! Enable cm_enabled and/or fo_enabled in config.json")
+            return 1
+        
+        # Step 3: Load unified token map
+        keep_days = config.get('data_management', {}).get('keep_days', 2)
+        token_map = load_token_map_unified(use_api=True, keep_days=keep_days)
+        
+        if not token_map:
+            logger.error("❌ Failed to load token map!")
+            return 1
+        
+        # Step 4: Create connections for enabled segments
+        logger.info("\n" + "=" * 70)
+        logger.info("📡 CREATING CONNECTIONS")
+        logger.info("=" * 70)
+        
+        if cm_enabled:
+            cm_connection = create_segment_connection(config, 'CM')
+            connections.append(('CM', cm_connection))
+            logger.info("✅ CM connection prepared (port 26001)")
+        
+        if fo_enabled:
+            fo_connection = create_segment_connection(config, 'FO')
+            connections.append(('FO', fo_connection))
+            logger.info("✅ FO connection prepared (port 26002)")
+        
+        # Step 5: Start receiver threads (NOT daemon - for proper cleanup)
+        logger.info("\n" + "=" * 70)
+        logger.info("🚀 STARTING RECEIVERS")
+        logger.info("=" * 70)
+        
+        for segment, connection in connections:
+            thread = threading.Thread(
+                target=run_segment_receiver,
+                args=(config, token_map, segment, connection),
+                name=f"Receiver-{segment}",
+                daemon=False  # Non-daemon for proper cleanup
+            )
+            threads.append(thread)
+            thread.start()
+            logger.info(f"✅ Started {segment} receiver thread")
+        
+        logger.info("\n" + "=" * 70)
+        logger.info("✅ ALL RECEIVERS RUNNING")
+        logger.info("=" * 70)
+        logger.info(f"Active threads: {len(threads)}")
+        logger.info("Press Ctrl+C to stop all receivers")
+        logger.info("=" * 70 + "\n")
+        
+        # Step 6: Wait for shutdown signal or threads to finish
+        while not shutdown_event.is_set():
+            # Check if all threads are dead
+            if all(not t.is_alive() for t in threads):
+                logger.info("All threads stopped")
+                break
+            time.sleep(0.5)  # Check every 500ms
+        
+        # Signal shutdown to all threads
+        shutdown_event.set()
+        
+        # Wait for threads to finish (with timeout)
+        logger.info("\n⏳ Waiting for threads to finish...")
+        for thread in threads:
+            thread.join(timeout=2.0)
+            if thread.is_alive():
+                logger.warning(f"Thread {thread.name} did not stop in time")
         
     except FileNotFoundError:
         logger.error("\n❌ Configuration file not found")
-        logger.error("Please create config.json in project root")
         return 1
-        
     except Exception as e:
         logger.error(f"\n❌ Application error: {e}")
         logger.exception("Full error traceback:")
         return 1
-        
     finally:
-        # Cleanup: Disconnect from multicast
-        if connection:
-            logger.info("\n🔌 Cleaning up connection...")
-            connection.disconnect()
+        # Cleanup
+        shutdown_event.set()
         
-        logger.info("\n" + "="*70)
+        logger.info("\n🔌 Cleaning up connections...")
+        for segment, connection in connections:
+            try:
+                connection.disconnect()
+            except:
+                pass
+        
+        logger.info("\n" + "=" * 70)
         logger.info("👋 BSE UDP Reader shutdown complete")
-        logger.info("="*70 + "\n")
+        logger.info("=" * 70 + "\n")
     
     return 0
 
 
 if __name__ == '__main__':
-    # Run main application
     exit_code = main()
     sys.exit(exit_code)

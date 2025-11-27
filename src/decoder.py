@@ -175,21 +175,19 @@ class PacketDecoder:
             msg_type = struct.unpack('<H', packet[8:10])[0]
             logger.debug(f"Message type: {msg_type} (0x{msg_type:04x})")
             
-            # Timestamp (offsets 20-25, Big-Endian uint16 each - as per BSE header spec)
-            hour = struct.unpack('>H', packet[20:22])[0]
-            minute = struct.unpack('>H', packet[22:24])[0]
-            second = struct.unpack('>H', packet[24:26])[0]
+            # Timestamp (offsets 20-25, Little-Endian uint16 each - per COMPLETE_PACKET_STRUCTURE_ANALYSIS.md)
+            hour = struct.unpack('<H', packet[20:22])[0]
+            minute = struct.unpack('<H', packet[22:24])[0]
+            second = struct.unpack('<H', packet[24:26])[0]
             
-            # Validate timestamp values before using them
-            if hour > 23 or minute > 59 or second > 59:
-                logger.warning(f"Invalid timestamp values: {hour:02d}:{minute:02d}:{second:02d} - using current time")
-                timestamp = datetime.now()
-            else:
-                # Create timestamp with current date, parsed time, and current microseconds
-                # Note: BSE header doesn't include milliseconds, so we use system time microseconds
-                now = datetime.now()
-                timestamp = now.replace(hour=hour, minute=minute, second=second)
-            logger.debug(f"Timestamp: {timestamp.strftime('%H:%M:%S.%f')[:-3]}")  # Show milliseconds
+            # Always use system current time with milliseconds
+            # BSE header timestamp often invalid or doesn't include milliseconds
+            # System time is more accurate for HFT timestamping
+            timestamp = datetime.now()
+            
+            # Debug logging for first few packets only
+            if self.stats.get('packets_decoded', 0) < 3:
+                logger.info(f"🕐 BSE Header: {hour:02d}:{minute:02d}:{second:02d} | Using System: {timestamp.strftime('%H:%M:%S.%f')[:-3]}")
             
             return {
                 'format_id': format_id,

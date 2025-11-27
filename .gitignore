@@ -29,3 +29,7 @@ bse_reader.log
 git rm --cached -r __pycache__ *.pyc
 
 */data/
+
+*/data/
+
+.vscode/

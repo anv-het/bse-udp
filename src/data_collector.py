@@ -49,10 +49,14 @@ class MarketDataCollector:
     Collects and normalizes market data from decompressed packet records.
     
     Transforms raw decompressed data into standardized quote dictionaries with:
-    - Token-to-symbol resolution
+    - Token-to-symbol resolution (segment-aware: CM vs FO)
     - Timestamp from packet header
     - Validated price/volume fields
     - Best 5 bid/ask market depth (if available)
+    
+    Segment-specific behavior:
+    - CM (Equity): token → symbol (e.g., RELIANCE), no expiry/strike/option_type
+    - FO (Derivatives): token → full contract details (symbol, expiry, strike, option_type)
     
     Tracks statistics:
     - quotes_collected: Total quotes built
@@ -61,22 +65,26 @@ class MarketDataCollector:
     - missing_fields: Expected fields not present
     """
     
-    def __init__(self, token_map: Dict[str, dict]):
+    def __init__(self, token_map: Dict[str, dict], segment: str = None):
         """
         Initialize market data collector with token mapping.
         
         Args:
             token_map: Dictionary mapping token IDs (as strings) to contract details
-                      Format: {'12345': {'symbol': 'SENSEX', 'expiry': '...', ...}, ...}
+                      For CM: {'500325': {'symbol': 'RELIANCE', 'segment': 'EQ', ...}, ...}
+                      For FO: {'873830': {'symbol': 'SENSEX', 'expiry': '...', 'segment': 'FO', ...}, ...}
+            segment: 'CM' for Equity Cash, 'FO' for Derivatives (affects field mapping)
         """
         self.token_map = token_map
+        self.segment = segment  # 'CM' or 'FO'
         self.stats = {
             'quotes_collected': 0,
             'unknown_tokens': 0,
             'validation_errors': 0,
             'missing_fields': 0
         }
-        logger.info(f"MarketDataCollector initialized with {len(token_map)} tokens")
+        segment_info = f" [{segment}]" if segment else ""
+        logger.info(f"MarketDataCollector initialized{segment_info} with {len(token_map)} tokens")
     
     def collect_quotes(self, header: dict, decompressed_records: List[Dict]) -> List[Dict]:
         """
@@ -158,11 +166,14 @@ class MarketDataCollector:
         Build normalized quote dictionary from single decompressed record.
         
         Steps:
-        1. Extract token and resolve to symbol
+        1. Extract token and resolve to symbol (segment-aware)
         2. Validate required fields present (token, ltp, volume)
         3. Build quote dict with all touchline fields
         4. Add Best 5 bid/ask levels if available
         5. Validate data ranges (prices > 0, volume >= 0)
+        
+        For CM segment: Only symbol (no expiry/strike/option_type)
+        For FO segment: Full contract details (symbol, expiry, strike, option_type)
         
         Args:
             record: Decompressed market data record (dict)
@@ -178,7 +189,7 @@ class MarketDataCollector:
             self.stats['missing_fields'] += 1
             return None
         
-        # Resolve token to symbol and contract details
+        # Resolve token to symbol and contract details (segment-aware)
         symbol_info = self._resolve_symbol_details(token)
         if symbol_info['symbol'] == 'UNKNOWN':
             self.stats['unknown_tokens'] += 1
@@ -189,26 +200,57 @@ class MarketDataCollector:
             self.stats['validation_errors'] += 1
             return None
         
-        # Build combined symbol_name: SENSEX20NOV2025_82000CE or SENSEX20NOV2025_FUT
-        symbol_name = self._format_symbol_name(symbol_info)
-        
-        # Build quote dictionary with separate symbol columns
-        quote = {
-            'token': token,
-            'symbol': symbol_info['symbol'],           # Base symbol (e.g., SENSEX)
-            'symbol_name': symbol_name,                # Combined identifier (e.g., SENSEX20NOV2025_82000CE)
-            'expiry': symbol_info['expiry'],           # Expiry date (e.g., 2025-11-20)
-            'option_type': symbol_info['option_type'], # CE/PE/FUT
-            'strike': symbol_info['strike'],           # Strike price (e.g., 83800)
-            'timestamp': timestamp,
-            'open': record.get('open', 0.0),
-            'high': record.get('high', 0.0),
-            'low': record.get('low', 0.0),
-            'close': record.get('ltp', 0.0),      # Close = LTP in real-time
-            'ltp': record.get('ltp', 0.0),
-            'volume': record.get('volume', 0),
-            'prev_close': record.get('prev_close', 0.0)
-        }
+        # Build quote dictionary based on segment
+        if self.segment == 'CM':
+            # CM (Equity): Simple symbol, no derivative fields
+            quote = {
+                'token': token,
+                'symbol': symbol_info['symbol'],           # e.g., RELIANCE
+                'symbol_name': symbol_info.get('company_name', symbol_info['symbol']),  # Full company name
+                'expiry': '',                              # Empty for equity
+                'option_type': '',                         # Empty for equity
+                'strike': '',                              # Empty for equity
+                'timestamp': timestamp,
+                'open': record.get('open', 0.0),
+                'high': record.get('high', 0.0),
+                'low': record.get('low', 0.0),
+                'close': record.get('ltp', 0.0),
+                'ltp': record.get('ltp', 0.0),
+                'prev_close': record.get('prev_close', 0.0),
+                'atp': record.get('atp', 0.0),
+                'volume': record.get('volume', 0),
+                'turnover_lakhs': record.get('turnover_lakhs', 0),
+                'lot_size': 1,  # Equity lot size is always 1
+                'sequence_number': record.get('sequence_number', 0)
+            }
+        else:
+            # FO (Derivatives): Full contract details
+            # Get symbol_name from contract master (FinInstrmNm/instrument_name field)
+            symbol_name = symbol_info.get('instrument_name', '') or symbol_info.get('full_name', '')
+            if not symbol_name:
+                # Fallback to formatted name
+                symbol_name = self._format_symbol_name(symbol_info)
+            
+            quote = {
+                'token': token,
+                'symbol': symbol_info['symbol'],           # Base symbol (e.g., SENSEX)
+                'symbol_name': symbol_name,                # Full contract name (e.g., SENSEX27NOV2025_82400PE)
+                'expiry': symbol_info.get('expiry', ''),   # Expiry date
+                'option_type': symbol_info.get('option_type', ''),  # CE/PE/'' for futures
+                'strike': symbol_info.get('strike', ''),   # Strike price
+                'timestamp': timestamp,
+                'open': record.get('open', 0.0),
+                'high': record.get('high', 0.0),
+                'low': record.get('low', 0.0),
+                'close': record.get('ltp', 0.0),
+                'ltp': record.get('ltp', 0.0),
+                'prev_close': record.get('prev_close', 0.0),
+                'atp': record.get('atp', 0.0),
+                'volume': record.get('volume', 0),
+                'turnover_lakhs': record.get('turnover_lakhs', 0),
+                'lot_size': symbol_info.get('lot_size', 0),
+                'sequence_number': record.get('sequence_number', 0)
+            }
         
         # Add Best 5 bid/ask levels if present
         if 'bid_levels' in record and record['bid_levels']:
@@ -226,72 +268,78 @@ class MarketDataCollector:
     
     def _resolve_symbol_details(self, token: int) -> dict:
         """
-        Resolve token ID to detailed contract information.
+        Resolve token ID to detailed contract information (segment-aware).
         
-        BSE tokens map to derivative contracts (SENSEX/BANKEX options/futures).
-        Token map loaded from data/tokens/token_details.json at startup.
+        For CM (Equity) segment:
+        - Returns: {'symbol': 'RELIANCE', 'company_name': 'Reliance Industries Ltd', 'segment': 'EQ'}
         
-        If token NOT found in JSON file (missing from contract master):
-        - Infer symbol based on token ID range (e.g., 114xxxx = SENSEX)
-        - Mark as incomplete for fallback handling
-        
-        Extracts and parses contract details:
-        - ticker: Base symbol (SENSEX/BANKEX)
-        - strike: Strike price in Rupees (converted from paise)
-        - expiry: Expiry date (DD-MMM-YYYY format)
-        - option_type: CE/PE for options, blank for futures
+        For FO (Derivatives) segment:
+        - Returns: {'symbol': 'SENSEX', 'expiry': '27-NOV-2025', 'option_type': 'CE', 
+                   'strike': '82400', 'lot_size': 10, 'instrument_name': 'SENSEX27NOV2025_82400CE', ...}
         
         Args:
             token: BSE token ID (integer)
         
         Returns:
-            Dictionary with symbol details:
-            {
-                'symbol': 'SENSEX',           # Base ticker
-                'expiry': '27-NOV-2025',      # Expiry date
-                'option_type': 'CE',          # CE/PE/''
-                'strike': '83300'             # Strike price in Rupees
-            }
+            Dictionary with symbol details appropriate for the segment
         """
         token_str = str(token)
         if token_str in self.token_map:
             contract = self.token_map[token_str]
             
-            # Extract base ticker (SENSEX/BANKEX)
-            ticker = contract.get('ticker', contract.get('symbol', 'UNKNOWN'))
+            # Check segment in token map
+            token_segment = contract.get('segment', '')
             
-            # Extract expiry (already formatted)
-            expiry = contract.get('expiry', '')
-            
-            # Extract option type (CE/PE or blank for futures)
-            option_type = contract.get('option_type', '')
-            
-            # Extract strike price (convert from paise to Rupees)
-            strike_paise = contract.get('strike', '')
-            if strike_paise and str(strike_paise).isdigit():
-                strike_rupees = int(strike_paise) / 100.0
-                # Format as integer if whole number, else with decimals
-                strike = str(int(strike_rupees)) if strike_rupees == int(strike_rupees) else f"{strike_rupees:.2f}"
+            if token_segment == 'EQ' or self.segment == 'CM':
+                # Equity token - simple symbol + company name
+                return {
+                    'symbol': contract.get('symbol', f'TOKEN_{token}'),
+                    'company_name': contract.get('company_name', ''),
+                    'isin': contract.get('isin', ''),
+                    'segment': 'EQ'
+                }
             else:
-                strike = ''
-            
-            return {
-                'symbol': ticker,
-                'expiry': expiry,
-                'option_type': option_type,
-                'strike': strike
-            }
+                # F&O token - full contract details
+                # Extract strike price (already in Rupees from CSV loader)
+                strike_rupees = contract.get('strike_price', contract.get('strike', 0))
+                if strike_rupees and isinstance(strike_rupees, (int, float)) and strike_rupees > 0:
+                    # Format as integer if whole number, else with decimals
+                    strike = str(int(strike_rupees)) if strike_rupees == int(strike_rupees) else f"{strike_rupees:.2f}"
+                elif strike_rupees:
+                    strike = str(strike_rupees)
+                else:
+                    strike = ''
+                
+                return {
+                    'symbol': contract.get('symbol', 'UNKNOWN'),
+                    'expiry': contract.get('expiry', ''),
+                    'option_type': contract.get('option_type', ''),
+                    'strike': strike,
+                    'lot_size': contract.get('lot_size', 0),
+                    'instrument_name': contract.get('instrument_name', ''),
+                    'full_name': contract.get('full_name', ''),
+                    'contract_type': contract.get('contract_type', ''),
+                    'segment': 'FO'
+                }
         else:
-            # Token NOT in contract master - attempt full decoding from token ID
-            logger.debug(f"Token {token} not found in token_map, attempting full token decoding")
-            decoded = self._decode_full_token(token)
-            if decoded['symbol'] != 'UNKNOWN':
-                logger.info(f"Successfully decoded token {token}: {decoded['symbol']} {decoded['expiry']} {decoded['strike']} {decoded['option_type']}")
-                return decoded
+            # Token NOT in contract master
+            logger.debug(f"Token {token} not found in token_map")
+            
+            if self.segment == 'CM':
+                return {
+                    'symbol': f'TOKEN_{token}',
+                    'company_name': '',
+                    'segment': 'EQ'
+                }
             else:
-                # Fallback to range-based inference
-                logger.debug(f"Full decoding failed for token {token}, using range-based inference")
-                return self._decode_token_from_id(token)
+                # Attempt full decoding from token ID for F&O
+                decoded = self._decode_full_token(token)
+                if decoded['symbol'] != 'UNKNOWN':
+                    logger.info(f"Successfully decoded token {token}: {decoded['symbol']} {decoded.get('expiry', '')} {decoded.get('strike', '')} {decoded.get('option_type', '')}")
+                    return decoded
+                else:
+                    # Fallback to range-based inference
+                    return self._decode_token_from_id(token)
     
     def _decode_token_from_id(self, token: int) -> dict:
         """
