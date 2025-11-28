@@ -9,15 +9,18 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
+// BSEConnection manages UDP multicast connection to BSE NFCAST feed
 type BSEConnection struct {
 	multicastIP string
 	port        int
 	bufferSize  int
+	segment     string // "CM" or "FO"
 	conn        *net.UDPConn
 	stopChan    chan struct{}
 }
 
-func NewBSEConnection(multicastIP string, port, bufferSize int) *BSEConnection {
+// NewBSEConnection creates a new BSE multicast connection
+func NewBSEConnection(multicastIP string, port, bufferSize int, segment string) *BSEConnection {
 	ip := net.ParseIP(multicastIP)
 	if ip == nil {
 		log.Fatalf("Invalid multicast IP: %s", multicastIP)
@@ -26,10 +29,12 @@ func NewBSEConnection(multicastIP string, port, bufferSize int) *BSEConnection {
 		multicastIP: multicastIP,
 		port:        port,
 		bufferSize:  bufferSize,
+		segment:     segment,
 		stopChan:    make(chan struct{}),
 	}
 }
 
+// Connect establishes UDP multicast connection to BSE NFCAST feed
 func (c *BSEConnection) Connect() error {
 	// Create UDP socket
 	addr := net.UDPAddr{
@@ -43,7 +48,7 @@ func (c *BSEConnection) Connect() error {
 	}
 
 	// Join multicast group using ipv4 package for proper IGMPv2 support
-	log.Printf("Joining multicast group %s...", c.multicastIP)
+	log.Printf("[%s] Joining multicast group %s:%d...", c.segment, c.multicastIP, c.port)
 	group := net.ParseIP(c.multicastIP)
 	if group == nil {
 		conn.Close()
@@ -55,26 +60,27 @@ func (c *BSEConnection) Connect() error {
 
 	// Join the multicast group
 	if err := p.JoinGroup(nil, &net.UDPAddr{IP: group, Port: c.port}); err != nil {
-		log.Printf("Warning: failed to join multicast group: %v", err)
+		log.Printf("[%s] Warning: failed to join multicast group: %v", c.segment, err)
 		// Continue anyway - some systems don't require explicit joining
 	}
 
 	// Set buffer size
 	if err := conn.SetReadBuffer(c.bufferSize); err != nil {
-		log.Printf("Warning: failed to set read buffer: %v", err)
+		log.Printf("[%s] Warning: failed to set read buffer: %v", c.segment, err)
 	}
 
-	// Set timeout
+	// Set timeout (1 second to allow Ctrl+C handling)
 	if err := conn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
 		conn.Close()
 		return fmt.Errorf("failed to set timeout: %w", err)
 	}
 
 	c.conn = conn
-	log.Printf("✓ Connected to BSE NFCAST: %s:%d", c.multicastIP, c.port)
+	log.Printf("[%s] ✓ Connected to BSE NFCAST: %s:%d", c.segment, c.multicastIP, c.port)
 	return nil
 }
 
+// ReceiveLoop continuously receives packets and sends them to the channel
 func (c *BSEConnection) ReceiveLoop(packets chan<- []byte) {
 	defer close(packets)
 
@@ -85,7 +91,7 @@ func (c *BSEConnection) ReceiveLoop(packets chan<- []byte) {
 		// Check for stop signal
 		select {
 		case <-c.stopChan:
-			log.Println("🛑 ReceiveLoop stopping...")
+			log.Printf("[%s] 🛑 ReceiveLoop stopping...", c.segment)
 			return
 		default:
 		}
@@ -95,7 +101,7 @@ func (c *BSEConnection) ReceiveLoop(packets chan<- []byte) {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				timeoutCount++
 				if timeoutCount >= 30 {
-					log.Println("⏱️ Still waiting for packets...")
+					log.Printf("[%s] ⏱️ Still waiting for packets...", c.segment)
 					timeoutCount = 0
 				}
 				// Reset timeout
@@ -107,7 +113,7 @@ func (c *BSEConnection) ReceiveLoop(packets chan<- []byte) {
 			case <-c.stopChan:
 				return
 			default:
-				log.Printf("Read error: %v", err)
+				log.Printf("[%s] Read error: %v", c.segment, err)
 				return
 			}
 		}
@@ -124,17 +130,25 @@ func (c *BSEConnection) ReceiveLoop(packets chan<- []byte) {
 		case <-c.stopChan:
 			return
 		default:
-			log.Println("Warning: packet channel full, dropping packet")
+			log.Printf("[%s] Warning: packet channel full, dropping packet", c.segment)
 		}
 	}
 }
 
+// GetSegment returns the segment identifier
+func (c *BSEConnection) GetSegment() string {
+	return c.segment
+}
+
+// Stop signals the connection to stop receiving
 func (c *BSEConnection) Stop() {
 	close(c.stopChan)
 }
 
+// Close closes the UDP connection
 func (c *BSEConnection) Close() {
 	if c.conn != nil {
 		c.conn.Close()
+		log.Printf("[%s] 🔌 Disconnected", c.segment)
 	}
 }

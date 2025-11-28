@@ -326,7 +326,8 @@ class PacketReceiver:
             logger.debug(f"Collected {len(quotes)} normalized quotes")
             
             # Step 4: Save to JSON/CSV
-            save_success = self.saver.save_quotes(quotes, save_json=True, save_csv=True)
+            # save_success = self.saver.save_quotes(quotes, save_json=True, save_csv=True)
+            save_success = self.saver.save_quotes(quotes, save_csv=True)
             if save_success:
                 self.stats['quotes_saved'] += len(quotes)
                 logger.info(f"✓ Phase 3 pipeline complete: {len(quotes)} quotes saved")
@@ -540,10 +541,10 @@ class PacketReceiver:
         }
         
         try:
-            # Append to tokens.json file
-            with open(self.tokens_file, 'a') as f:
-                json.dump(metadata, f)
-                f.write('\n')  # Newline-delimited JSON for easy parsing
+            # # Append to tokens.json file
+            # with open(self.tokens_file, 'a') as f:
+            #     json.dump(metadata, f)
+            #     f.write('\n')  # Newline-delimited JSON for easy parsing
             
             logger.info(f"Stored packet metadata: {len(tokens)} tokens, type {msg_type}")
         except Exception as e:

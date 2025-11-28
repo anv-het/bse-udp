@@ -310,7 +310,8 @@ class DataSaver:
         
         return csv_row
     
-    def save_quotes(self, quotes: List[Dict], save_json: bool = True, save_csv: bool = True) -> bool:
+    # def save_quotes(self, quotes: List[Dict], save_json: bool = True, save_csv: bool = True) -> bool:
+    def save_quotes(self, quotes: List[Dict], save_csv: bool = True) -> bool:
         """
         Save quotes to both JSON and CSV (convenience method).
         
@@ -324,9 +325,9 @@ class DataSaver:
         """
         success = True
         
-        if save_json:
-            if not self.save_to_json(quotes):
-                success = False
+        # if save_json:
+        #     if not self.save_to_json(quotes):
+        #         success = False
         
         if save_csv:
             if not self.save_to_csv(quotes):

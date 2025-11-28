@@ -2,9 +2,11 @@ package decompressor
 
 import (
 	"bse-go/pkg/decoder"
+	"log"
 	"time"
 )
 
+// DecompressedRecord contains normalized market data after decompression
 type DecompressedRecord struct {
 	Token          uint32       `json:"token"`
 	Open           float64      `json:"open"`
@@ -25,25 +27,30 @@ type DecompressedRecord struct {
 	Timestamp      time.Time    `json:"timestamp"`
 }
 
+// OrderLevel represents a single price level in the order book
 type OrderLevel struct {
 	Price    float64 `json:"price"`
 	Quantity int32   `json:"quantity"`
 	Flag     int32   `json:"flag"`
 }
 
+// NFCASTDecompressor handles BSE NFCAST packet decompression
 type NFCASTDecompressor struct {
-	stats struct {
+	segment string // "CM" or "FO"
+	stats   struct {
 		recordsDecompressed int
 		decompressErrors    int
 	}
 }
 
-func NewNFCASTDecompressor() *NFCASTDecompressor {
-	return &NFCASTDecompressor{}
+// NewNFCASTDecompressor creates a new decompressor
+func NewNFCASTDecompressor(segment string) *NFCASTDecompressor {
+	return &NFCASTDecompressor{segment: segment}
 }
 
+// DecompressRecord normalizes a decoded market record
 func (d *NFCASTDecompressor) DecompressRecord(header decoder.PacketHeader, record decoder.MarketRecord) (*DecompressedRecord, error) {
-	// Since BSE production feed sends uncompressed data, just normalize
+	// BSE production feed sends uncompressed data, just normalize
 	decompressed := &DecompressedRecord{
 		Token:          record.Token,
 		Open:           record.Open,
@@ -87,9 +94,16 @@ func (d *NFCASTDecompressor) DecompressRecord(header decoder.PacketHeader, recor
 	return decompressed, nil
 }
 
+// GetStats returns decompressor statistics
 func (d *NFCASTDecompressor) GetStats() map[string]int {
 	return map[string]int{
 		"records_decompressed": d.stats.recordsDecompressed,
 		"decompress_errors":    d.stats.decompressErrors,
 	}
+}
+
+// LogStats logs decompressor statistics
+func (d *NFCASTDecompressor) LogStats() {
+	log.Printf("[%s] Decompressor Stats: records=%d, errors=%d",
+		d.segment, d.stats.recordsDecompressed, d.stats.decompressErrors)
 }
