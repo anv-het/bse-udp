@@ -11,11 +11,11 @@ Target contracts at 14:22:23 on Oct 17, 2025:
 import sys
 import os
 import time
+import socket
 from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from connection import BSEMulticastConnection
-from packet_receiver import PacketReceiver
 from decoder import PacketDecoder
 from decompressor import NFCASTDecompressor
 from data_collector import MarketDataCollector
@@ -24,11 +24,11 @@ import json
 
 # Target tokens
 TARGET_TOKENS = {
-    861384: {'name': 'SENSEX 30-OCT-2025 FUT', 'expected_ltp': 83847},
-    878196: {'name': 'SENSEX 83900 CE 23-OCT', 'expected_ltp': 486},
-    878015: {'name': 'SENSEX 83800 PE 23-OCT', 'expected_ltp': 340},
-    877845: {'name': 'SENSEX 83700 PE 23-OCT', 'expected_ltp': 304},
-    877761: {'name': 'SENSEX 84000 CE 23-OCT', 'expected_ltp': 430},
+    1102290: {'name': 'SENSEX FUT 24-DEC-2025', 'expected_ltp': 0.0},
+    885978:  {'name': 'SENSEX_CE_84900.00_24-DEC-2025', 'expected_ltp': 0.0},
+    886198:  {'name': 'SENSEX_CE_86700.00_24-DEC-2025', 'expected_ltp': 0.0},
+    1143697: {'name': 'SENSEX_FUT_29-JAN-2026', 'expected_ltp': 0.0},
+    1133128: {'name': 'SENSEX_CE_90500.00_04-DEC-2025', 'expected_ltp': 0.0},
 }
 
 def test_live_sensex():
@@ -68,7 +68,6 @@ def test_live_sensex():
         buffer_size=config.get('buffer_size', 2048)
     )
     sock = connection.connect()
-    receiver = PacketReceiver(sock, config, token_map)
     decoder = PacketDecoder()
     decompressor = NFCASTDecompressor()
     collector = MarketDataCollector(token_map)
@@ -104,8 +103,12 @@ def test_live_sensex():
     
     try:
         while time.time() - start_time < max_duration:
-            # Receive packet
-            packet_data = receiver.receive_packet()
+            # Receive packet directly from socket
+            try:
+                packet_data, addr = sock.recvfrom(2000)
+            except socket.timeout:
+                continue
+            
             if not packet_data:
                 continue
             
@@ -124,17 +127,21 @@ def test_live_sensex():
                 if token not in TARGET_TOKENS:
                     continue
                 
-                # Decompress (if needed)
-                # For now, just use base LTP from decoder
-                ltp_paise = record.get('ltp', 0)
-                ltp_rupees = ltp_paise / 100.0
+                # Decompress the record
+                decompressed = decompressor.decompress_record(packet_data, record)
+                if not decompressed:
+                    continue
+                
+                # Get LTP from decompressed data
+                ltp_rupees = decompressed.get('ltp', 0)
                 
                 # Collect market data
-                quote = collector.collect_quote(record, decoded['header'])
+                quotes = collector.collect_quotes(decoded['header'], [decompressed])
                 
-                if quote:
-                    # Save to CSV/JSON
-                    saver.save_quote(quote)
+                if quotes:
+                    for quote in quotes:
+                        # Save to CSV/JSON
+                        saver.save_quotes([quote], save_csv=True)
                     
                     # Track this token
                     if token not in found_tokens:
@@ -143,8 +150,8 @@ def test_live_sensex():
                     found_tokens[token].append({
                         'timestamp': datetime.now(),
                         'ltp': ltp_rupees,
-                        'volume': record.get('volume', 0),
-                        'trades': record.get('num_trades', 0)
+                        'volume': decompressed.get('volume', 0),
+                        'trades': decompressed.get('num_trades', 0)
                     })
                     
                     # Print update
@@ -173,7 +180,7 @@ def test_live_sensex():
         print("\n\n⚠️  Interrupted by user")
     
     finally:
-        connection.close()
+        connection.disconnect()
     
     # Copy output files with timestamp
     import shutil

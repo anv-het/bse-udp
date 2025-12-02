@@ -7,7 +7,7 @@ Shows real-time price changes and order book updates.
 
 Usage:
 - Reliance (CM): python test_live_token.py --token 500325 --port 26001 --ticks 50
-- SENSEX Fut (F&O): python test_live_token.py --token 873830 --port 26002 --ticks 50
+- SENSEX Fut (F&O): python test_live_token.py --token 1102290 --port 26002 --ticks 50
 
 Features:
 - Live tick display with price change highlighting
@@ -51,29 +51,56 @@ def load_cm_symbols() -> Dict[int, str]:
 
 
 def load_fno_symbols() -> Dict[int, str]:
-    """Load F&O token → symbol mapping from Contract Master (simple)."""
-    from contract_manager import BSEContractManager
+    """Load F&O token → symbol mapping from local Contract CSV file."""
+    import csv
+    from pathlib import Path
     
-    API_URL = "http://192.168.102.166:2060/v1/sftp-files?api_type=erp"
-    manager = BSEContractManager(API_URL)
-    fetcher = manager.load_latest_contracts()
+    # Find the latest contract file in data/tokens/
+    tokens_dir = Path(__file__).parent.parent / 'data' / 'tokens'
     
-    # Simple mapping: token → symbol (with expiry/strike for options)
+    # Look for BSE_EQD_CONTRACT_*.csv files (without _fetched suffix)
+    pattern = "BSE_EQD_CONTRACT_*.csv"
+    files = [f for f in tokens_dir.glob(pattern) if '_fetched' not in f.name]
+    
+    if not files:
+        print(f"   ❌ No contract files found in {tokens_dir}")
+        return {}
+    
+    # Sort to get latest (filename has date DDMMYYYY)
+    latest_file = sorted(files)[-1]
+    print(f"   📂 Loading from: {latest_file.name}")
+    
+    # Parse CSV - columns are:
+    # 0: Token, 3: Symbol, 4: Expiry, 5: Strike, 6: Option Type (CE/PE)
     symbols = {}
-    for token, info in fetcher.contracts.items():
-        symbol = info.get('symbol', 'UNKNOWN')
-        expiry = info.get('expiry', '')
-        strike = info.get('strike', '')
-        opt_type = info.get('option_type', '')
-        
-        if strike and opt_type:
-            # Option: SENSEX 85000 CE 27-NOV
-            symbols[int(token)] = f"{symbol} {strike} {opt_type} {expiry}"
-        elif expiry:
-            # Future: SENSEX FUT 27-NOV
-            symbols[int(token)] = f"{symbol} FUT {expiry}"
-        else:
-            symbols[int(token)] = symbol
+    with open(latest_file, 'r', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if len(row) < 7:
+                continue
+            
+            try:
+                token = int(row[0])
+                symbol = row[3]  # e.g., RELIANCE
+                expiry = row[4]  # e.g., 24-DEC-2025
+                strike = row[5]  # e.g., 154000 (in paise, divide by 100)
+                opt_type = row[6]  # CE or PE
+                
+                # Format: RELIANCE 1540 PE 24-DEC
+                if strike and opt_type:
+                    # Convert strike from paise to rupees for display
+                    strike_val = int(strike) // 100 if strike.isdigit() else strike
+                    # Shorten expiry: 24-DEC-2025 → 24-DEC
+                    short_expiry = '-'.join(expiry.split('-')[:2]) if expiry else ''
+                    symbols[token] = f"{symbol} {strike_val} {opt_type} {short_expiry}"
+                elif expiry:
+                    short_expiry = '-'.join(expiry.split('-')[:2]) if expiry else ''
+                    symbols[token] = f"{symbol} FUT {short_expiry}"
+                else:
+                    symbols[token] = symbol
+                    
+            except (ValueError, IndexError):
+                continue
     
     return symbols
 

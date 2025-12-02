@@ -60,39 +60,49 @@ class BSEContractManager:
         logger.info(f"Contract Manager initialized")
         logger.info(f"Storage: {self.storage_dir}")
     
-    def get_file_path(self, date_str: str) -> Path:
+    def get_file_path(self, date_str: str, with_suffix: bool = True) -> Path:
         """
         Get file path for a date.
         
         Args:
             date_str: Date in DD-MM-YYYY format
+            with_suffix: If True, use _fetched suffix (for new downloads)
         
         Returns:
             Path to contract file
         """
         file_date = date_str.replace("-", "")
-        filename = f"BSE_EQD_CONTRACT_{file_date}_fetched.csv"
+        if with_suffix:
+            filename = f"BSE_EQD_CONTRACT_{file_date}_fetched.csv"
+        else:
+            filename = f"BSE_EQD_CONTRACT_{file_date}.csv"
         return self.storage_dir / filename
     
     def file_exists(self, date_str: str) -> bool:
         """
         Check if contract file exists for a date.
+        Checks both API-fetched (_fetched.csv) and manually downloaded (.csv) files.
         
         Args:
             date_str: Date in DD-MM-YYYY format
         
         Returns:
-            True if file exists
+            True if file exists (either format)
         """
-        file_path = self.get_file_path(date_str)
-        exists = file_path.exists()
+        # Check for API-fetched file first
+        file_path_fetched = self.get_file_path(date_str, with_suffix=True)
+        if file_path_fetched.exists():
+            logger.info(f"✅ File exists: {file_path_fetched.name}")
+            return True
         
-        if exists:
-            logger.info(f"✅ File exists: {file_path.name}")
-        else:
-            logger.info(f"❌ File missing: {file_path.name}")
+        # Check for manually downloaded file (without _fetched suffix)
+        file_path_manual = self.get_file_path(date_str, with_suffix=False)
+        if file_path_manual.exists():
+            logger.info(f"✅ File exists: {file_path_manual.name}")
+            return True
         
-        return exists
+        logger.info(f"❌ File missing: BSE_EQD_CONTRACT_{date_str.replace('-', '')}.csv (both formats)")
+        return False
     
     def fetch_contract_file(self, date_str: str) -> bool:
         """
@@ -178,16 +188,33 @@ class BSEContractManager:
         Returns:
             Path to latest file or None
         """
-        # Find all contract files
-        pattern = "BSE_EQD_CONTRACT_*_fetched.csv"
-        files = list(self.storage_dir.glob(pattern))
+        # Find all contract files - both API-fetched and manually downloaded
+        # API creates: BSE_EQD_CONTRACT_DDMMYYYY_fetched.csv
+        # Manual:      BSE_EQD_CONTRACT_DDMMYYYY.csv
+        pattern_fetched = "BSE_EQD_CONTRACT_*_fetched.csv"
+        pattern_manual = "BSE_EQD_CONTRACT_????????.csv"  # 8 digits = DDMMYYYY
+        
+        files_fetched = list(self.storage_dir.glob(pattern_fetched))
+        files_manual = [f for f in self.storage_dir.glob(pattern_manual) if '_fetched' not in f.name]
+        
+        files = files_fetched + files_manual
         
         if not files:
             logger.warning("❌ No contract files found")
             return None
         
-        # Sort by filename (DDMMYYYY is sortable)
-        latest_file = sorted(files)[-1]
+        # Sort by date in filename (DDMMYYYY format)
+        # Extract date from filename for proper sorting
+        def extract_date(f):
+            name = f.stem  # e.g., BSE_EQD_CONTRACT_01122025 or BSE_EQD_CONTRACT_01122025_fetched
+            parts = name.split('_')
+            for part in parts:
+                if part.isdigit() and len(part) == 8:
+                    # Convert DDMMYYYY to YYYYMMDD for sorting
+                    return part[4:8] + part[2:4] + part[0:2]
+            return "00000000"
+        
+        latest_file = sorted(files, key=extract_date)[-1]
         
         logger.info(f"📂 Latest file: {latest_file.name}")
         return latest_file
