@@ -40,7 +40,7 @@ This tool measures and benchmarks the BSE Equity (Cash Market) multicast feed pe
 ./benchmark_eq.exe -duration 1h
 
 # Custom multicast settings
-./benchmark_eq.exe -ip 227.0.0.21 -port 26001
+./benchmark_eq.exe -ip 239.1.2.5 -port 26001
 
 # Full options
 ./benchmark_eq.exe -ip <multicast_ip> -port <port> -duration <time>
@@ -84,7 +84,7 @@ go build -o benchmark_eq.exe .
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| ip | 227.0.0.21 | BSE Equity multicast IP |
+| ip | 239.1.2.5 | BSE Equity multicast IP |
 | port | 26001 | BSE Equity UDP port |
 | duration | 0 (infinite) | Benchmark duration |
 | buffer | 65536 | UDP receive buffer size |

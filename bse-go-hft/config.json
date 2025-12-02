@@ -1,0 +1,60 @@
+{
+  "segments": {
+    "cm_enabled": true,
+    "fo_enabled": true,
+    "comment": "Enable/disable Equity Cash (CM) and Derivatives (F&O) feeds"
+  },
+  "multicast": {
+    "ip": "239.1.2.5",
+    "port": 26002,
+    "segment": "Equity Derivatives (F&O)",
+    "env": "production"
+  },
+  "multicast_cm": {
+    "ip": "239.1.2.5",
+    "port": 26001,
+    "segment": "Equity Cash (CM)",
+    "env": "production"
+  },
+  "multicast_fo": {
+    "ip": "239.1.2.5",
+    "port": 26002,
+    "segment": "Equity Derivatives (F&O)",
+    "env": "production"
+  },
+  "api": {
+    "base_url": "http://192.168.102.166:2060/v1/sftp-files",
+    "api_type": "erp",
+    "timeout": 30
+  },
+  "data_management": {
+    "keep_days": 2,
+    "auto_cleanup": true
+  },
+  "buffer_size": 2048,
+  "logging_level": "INFO",
+  "timeout": 30,
+  "store_limit": 100,
+  "comments": [
+    "BSE NFCAST Production Multicast Configuration",
+    "",
+    "Dual Port Setup:",
+    "  Port 26001: Equity Cash (CM) - ~4,689 stocks (BhavCopy CSV)",
+    "  Port 26002: Derivatives (F&O) - ~40,000 contracts (Contract Master CSV)",
+    "",
+    "Token Mapping:",
+    "  - Uses daily API CSV files (NO token_details.json dependency)",
+    "  - Auto-fetches from BSE API on startup",
+    "  - Auto-cleanup: keeps last 2 days of CSV files",
+    "",
+    "Data Sources:",
+    "  - BhavCopy_BSE_CM_*.csv: Stock symbols for port 26001",
+    "  - BSE_EQD_CONTRACT_*.csv: F&O contracts for port 26002",
+    "",
+    "Packet Structure:",
+    "  36-byte header + N×264-byte records with full order book",
+    "  Includes 5-level bid/ask depth at offset 104-263",
+    "",
+    "BSE Market Hours: 9:00 AM - 3:30 PM IST (Mon-Fri)"
+  ]
+}

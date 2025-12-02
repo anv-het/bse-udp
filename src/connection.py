@@ -18,7 +18,7 @@ Protocol Details:
 
 Multicast IPs:
 - Simulation Equity NFCAST: 226.1.0.1:11401
-- Production Equity NFCAST: 227.0.0.21:12996
+- Production Equity NFCAST: 239.1.2.5:12996
 """
 
 import socket

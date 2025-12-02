@@ -241,7 +241,7 @@ class TestPacketProcessing(unittest.TestCase):
         """Test processing of type 2020 packet."""
         packet = self._create_valid_packet(0x07E4, [842364, 123456])
         
-        self.receiver._process_packet(packet, ('227.0.0.21', 12996))
+        self.receiver._process_packet(packet, ('239.1.2.5', 12996))
         
         # Check statistics
         self.assertEqual(self.receiver.stats['packets_valid'], 1)
@@ -254,7 +254,7 @@ class TestPacketProcessing(unittest.TestCase):
         """Test processing of type 2021 packet."""
         packet = self._create_valid_packet(0x07E5, [999999])
         
-        self.receiver._process_packet(packet, ('227.0.0.21', 12996))
+        self.receiver._process_packet(packet, ('239.1.2.5', 12996))
         
         # Check statistics
         self.assertEqual(self.receiver.stats['packets_valid'], 1)
@@ -265,7 +265,7 @@ class TestPacketProcessing(unittest.TestCase):
         """Test rejection of invalid packet."""
         packet = b'\x00' * 30  # Too small
         
-        self.receiver._process_packet(packet, ('227.0.0.21', 12996))
+        self.receiver._process_packet(packet, ('239.1.2.5', 12996))
         
         # Should be counted as invalid
         self.assertEqual(self.receiver.stats['packets_invalid'], 1)
@@ -298,7 +298,7 @@ class TestStorageLimit(unittest.TestCase):
         
         # Process 5 packets
         for _ in range(5):
-            receiver._process_packet(bytes(packet), ('227.0.0.21', 12996))
+            receiver._process_packet(bytes(packet), ('239.1.2.5', 12996))
         
         # Should only store 3
         self.assertEqual(min(receiver.stored_count, receiver.store_limit), 3)

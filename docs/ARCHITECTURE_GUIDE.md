@@ -8,7 +8,7 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                        BSE MARKET DATA NETWORK                           │
 │                                                                           │
-│   Production:  227.0.0.21:12996 (Equity NFCAST)                         │
+│   Production:  239.1.2.5:12996 (Equity NFCAST)                         │
 │   Simulation:  226.1.0.1:11401  (Equity test feed)                      │
 │                                                                           │
 │   Protocol: UDP Multicast (IGMPv2)                                       │

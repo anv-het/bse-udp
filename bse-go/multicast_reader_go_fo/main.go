@@ -29,7 +29,7 @@ import (
 const (
 	// BSE F&O (Derivatives) Multicast Feed
 	DefaultMulticastIP = "239.1.2.5"
-	DefaultPort        = 26001
+	DefaultPort        = 26002
 	BufferSize         = 65536
 
 	// Statistics intervals

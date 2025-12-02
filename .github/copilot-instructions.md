@@ -51,7 +51,7 @@ volume     = struct.unpack('>i', record[24:28])[0]    # Big-Endian
 ## Architecture & Data Flow (Phases 1-3 Complete)
 
 ```
-BSE Network (227.0.0.21:12996 prod, 226.1.0.1:11401 test)
+BSE Network (239.1.2.5:12996 prod, 226.1.0.1:11401 test)
     │ UDP Multicast (IGMPv2)
     ↓
 connection.py - UDP socket setup, multicast join
@@ -248,7 +248,7 @@ python tests/test_decompressor.py
 **Buffer Size:** 2000 bytes (recommended by BSE)  
 **Netting Interval:** 0.80 seconds (BSE aggregates updates)
 
-**Production Multicast:** 227.0.0.21:12996 (Equity NFCAST)  
+**Production Multicast:** 239.1.2.5:12996 (Equity NFCAST)  
 **Simulation Multicast:** 226.1.0.1:11401 (Equity test feed)
 
 ---

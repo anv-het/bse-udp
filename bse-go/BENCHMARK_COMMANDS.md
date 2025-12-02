@@ -39,7 +39,7 @@ go run main.go -duration 5m      # 5 minutes
 go run main.go
 
 # Custom IP/Port
-go run main.go -ip 227.0.0.21 -port 26001 -duration 5m
+go run main.go -ip 239.1.2.5 -port 26001 -duration 5m
 
 # Using pre-built executable
 .\benchmark_eq.exe -duration 5m

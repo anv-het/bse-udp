@@ -33,3 +33,6 @@ git rm --cached -r __pycache__ *.pyc
 */data/
 
 .vscode/
+
+bse-go/data/
+bse-go-hft/data/

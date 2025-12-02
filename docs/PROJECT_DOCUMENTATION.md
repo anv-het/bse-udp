@@ -62,7 +62,7 @@ Real-time market data feed parser for Bombay Stock Exchange (BSE) via UDP multic
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    BSE UDP MULTICAST NETWORK                     │
-│            (227.0.0.21:12996 prod / 226.1.0.1:11401 test)       │
+│            (239.1.2.5:12996 prod / 226.1.0.1:11401 test)       │
 └────────────────────────────┬────────────────────────────────────┘
                              │ UDP Packets (564 bytes)
                              │ Format: 0x0234 (Little-Endian)
@@ -576,7 +576,7 @@ if not record.get('is_compressed', True):
 #### Production Environment
 ```json
 {
-  "multicast_ip": "227.0.0.21",
+  "multicast_ip": "239.1.2.5",
   "multicast_port": 12996,
   "segment": "Equity",
   "env": "production"

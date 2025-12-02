@@ -46,7 +46,7 @@ This tool measures and benchmarks the BSE F&O (Futures & Options) multicast feed
 ./benchmark_fo.exe -duration 1h
 
 # Custom multicast settings
-./benchmark_fo.exe -ip 227.0.0.21 -port 26002
+./benchmark_fo.exe -ip 239.1.2.5 -port 26002
 
 # Full options
 ./benchmark_fo.exe -ip <multicast_ip> -port <port> -duration <time>
@@ -93,7 +93,7 @@ go build -o benchmark_fo.exe .
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| ip | 227.0.0.21 | BSE F&O multicast IP |
+| ip | 239.1.2.5 | BSE F&O multicast IP |
 | port | 26002 | BSE F&O UDP port |
 | duration | 0 (infinite) | Benchmark duration |
 | buffer | 65536 | UDP receive buffer size |
