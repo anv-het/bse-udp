@@ -230,6 +230,21 @@ func (t *Tracker) GetSavePercentiles() metrics.LatencyPercentiles {
 	return t.saveLatency.GetPercentiles()
 }
 
+// GetDecodeStats returns decode latency statistics (min/avg/max)
+func (t *Tracker) GetDecodeStats() metrics.LatencyStats {
+	return t.decodeLatency.GetStats()
+}
+
+// GetProcessStats returns process latency statistics (min/avg/max)
+func (t *Tracker) GetProcessStats() metrics.LatencyStats {
+	return t.processLatency.GetStats()
+}
+
+// GetSaveStats returns save latency statistics (min/avg/max)
+func (t *Tracker) GetSaveStats() metrics.LatencyStats {
+	return t.saveLatency.GetStats()
+}
+
 // GetSequenceStats returns sequence tracking statistics
 func (t *Tracker) GetSequenceStats() metrics.SequenceStats {
 	return t.sequenceTracker.GetStats()
@@ -304,6 +319,16 @@ func (t *Tracker) PrintFinalReport(tokenCount int) {
 		fmt.Printf("│    Packets/sec:          %-56.2f│\n", pps)
 		fmt.Printf("│    Records/sec:          %-56.2f│\n", rps)
 		fmt.Printf("│    Data Rate:            %-52.3f MB/s│\n", mbps)
+		fmt.Println("├──────────────────────────────────────────────────────────────────────────────┤")
+
+		// Average time per packet/record
+		msPerPacket := elapsedSec * 1000.0 / float64(t.TotalPackets())
+		usPerRecord := elapsedSec * 1000000.0 / float64(t.TotalRecords())
+		nsPerRecord := elapsedSec * 1000000000.0 / float64(t.TotalRecords())
+
+		fmt.Printf("│    Avg Time/Packet:      %-52.4f ms│\n", msPerPacket)
+		fmt.Printf("│    Avg Time/Record:      %-52.2f µs│\n", usPerRecord)
+		fmt.Printf("│    Avg Time/Record:      %-52.0f ns│\n", nsPerRecord)
 	}
 	fmt.Println("└──────────────────────────────────────────────────────────────────────────────┘")
 
@@ -344,15 +369,24 @@ func (t *Tracker) PrintFinalReport(tokenCount int) {
 	saveP := t.GetSavePercentiles()
 	processP := t.GetProcessPercentiles()
 
+	// Get average stats
+	decodeS := t.GetDecodeStats()
+	saveS := t.GetSaveStats()
+	processS := t.GetProcessStats()
+
 	fmt.Println("\n┌──────────────────────────────────────────────────────────────────────────────┐")
 	fmt.Println("│  ⚡ LATENCY ANALYSIS (microseconds)                                          │")
 	fmt.Println("├──────────────────────────────────────────────────────────────────────────────┤")
-	fmt.Println("│    Percentile       Decode          Save            Total                    │")
+	fmt.Println("│    Metric            Decode          Save            Total                   │")
 	fmt.Println("│    ─────────────────────────────────────────────────────────                 │")
-	fmt.Printf("│    P50           %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P50, saveP.P50, processP.P50)
-	fmt.Printf("│    P90           %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P90, saveP.P90, processP.P90)
-	fmt.Printf("│    P99           %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P99, saveP.P99, processP.P99)
-	fmt.Printf("│    P99.9         %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P999, saveP.P999, processP.P999)
+	fmt.Printf("│    Min            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeS.Min, saveS.Min, processS.Min)
+	fmt.Printf("│    Avg            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeS.Avg, saveS.Avg, processS.Avg)
+	fmt.Printf("│    Max            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeS.Max, saveS.Max, processS.Max)
+	fmt.Println("│    ─────────────────────────────────────────────────────────                 │")
+	fmt.Printf("│    P50            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P50, saveP.P50, processP.P50)
+	fmt.Printf("│    P90            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P90, saveP.P90, processP.P90)
+	fmt.Printf("│    P99            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P99, saveP.P99, processP.P99)
+	fmt.Printf("│    P99.9          %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P999, saveP.P999, processP.P999)
 	fmt.Println("└──────────────────────────────────────────────────────────────────────────────┘")
 
 	// SEQUENCE & TOKEN TRACKING

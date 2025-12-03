@@ -128,7 +128,7 @@ func loadContractMaster() int {
 
 	// Use the latest file (sort by name - date format ensures order)
 	csvPath := files[len(files)-1]
-	
+
 	file, err := os.Open(csvPath)
 	if err != nil {
 		return 0
@@ -137,36 +137,36 @@ func loadContractMaster() int {
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB buffer
-	
+
 	count := 0
 	lineNum := 0
-	
+
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
-		
+
 		// Skip header
 		if lineNum == 1 && strings.HasPrefix(line, "FinInstrmId") {
 			continue
 		}
-		
+
 		fields := strings.Split(line, ",")
 		if len(fields) < 20 {
 			continue
 		}
-		
+
 		// Parse token (column 0)
 		tokenID, err := strconv.ParseUint(fields[0], 10, 32)
 		if err != nil || tokenID == 0 {
 			continue
 		}
-		
+
 		// Parse contract details
-		symbol := fields[3]      // TckrSymb (underlying)
-		contract := fields[18]   // Contract name (e.g., SENSEX26JAN85500CE)
-		expiry := fields[4]      // Expiry date
-		optType := fields[6]     // Option type (CE/PE/XX)
-		
+		symbol := fields[3]    // TckrSymb (underlying)
+		contract := fields[18] // Contract name (e.g., SENSEX26JAN85500CE)
+		expiry := fields[4]    // Expiry date
+		optType := fields[6]   // Option type (CE/PE/XX)
+
 		// Parse strike price
 		strike := 0.0
 		if len(fields) > 5 {
@@ -174,7 +174,7 @@ func loadContractMaster() int {
 				strike = s / 100.0 // Convert paise to rupees
 			}
 		}
-		
+
 		TokenMap[uint32(tokenID)] = &TokenInfo{
 			Symbol:     symbol,
 			Contract:   contract,
@@ -184,7 +184,7 @@ func loadContractMaster() int {
 		}
 		count++
 	}
-	
+
 	return count
 }
 
@@ -198,7 +198,7 @@ func loadBhavCopy() int {
 	}
 
 	csvPath := files[len(files)-1]
-	
+
 	file, err := os.Open(csvPath)
 	if err != nil {
 		return 0
@@ -207,40 +207,40 @@ func loadBhavCopy() int {
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	
+
 	count := 0
 	lineNum := 0
-	
+
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
-		
+
 		// Skip header
 		if lineNum == 1 {
 			continue
 		}
-		
+
 		fields := strings.Split(line, ",")
 		if len(fields) < 8 {
 			continue
 		}
-		
+
 		// Parse token (column 5 = FinInstrmId)
 		tokenID, err := strconv.ParseUint(fields[5], 10, 32)
 		if err != nil || tokenID == 0 {
 			continue
 		}
-		
+
 		// Parse symbol (column 7 = TckrSymb)
 		symbol := fields[7]
-		
+
 		TokenMap[uint32(tokenID)] = &TokenInfo{
 			Symbol:   symbol,
 			Contract: symbol,
 		}
 		count++
 	}
-	
+
 	return count
 }
 
@@ -568,7 +568,7 @@ func monitorToken(targetToken uint32, port int, multicastIP string, maxTicks int
 
 	symbol := getSymbol(targetToken)
 	fmt.Printf("\n📊 Token %d → %s\n", targetToken, symbol)
-	
+
 	// Show detailed token info if available
 	if info := getTokenInfo(targetToken); info != nil {
 		fmt.Printf("   Symbol:     %s\n", info.Symbol)
@@ -592,7 +592,6 @@ func monitorToken(targetToken uint32, port int, multicastIP string, maxTicks int
 	}
 	defer csvWriter.Close()
 	fmt.Printf("\n💾 CSV File: %s\n", csvWriter.filename)
-
 
 	// Connect to multicast
 	fmt.Printf("\n📡 Connecting to %s:%d...\n", multicastIP, port)

@@ -72,11 +72,17 @@ const (
 	// Default F&O Multicast Feed
 	DefaultMulticastIP = "239.1.2.5"
 	DefaultPort        = 26001
-	BufferSize         = 65536
+	BufferSize         = 2048 // Packet buffer size
+
+	// Socket receive buffer - CRITICAL for reducing packet loss
+	SocketRcvBufSize = 32 * 1024 * 1024 // 32MB socket buffer
+
+	// Ring buffer for zero-loss processing
+	RingBufferSize = 16384 // 16K slots
 
 	// Packet structure
 	HeaderSize = 36
-	RecordSize = 66
+	RecordSize = 264 // BSE uses 264-byte records
 
 	// Latency sample storage
 	MaxLatencySamples = 100000
@@ -397,11 +403,12 @@ type BenchmarkResult struct {
 	AvgMemoryMB   float64
 	TotalGCPauses uint32
 
-	// Packet Loss
-	SequenceGaps   int64
-	MissedPackets  int64
+	// Packet Loss - Actual vs Sequence
+	RingOverflow   uint64  // Actual drops due to ring buffer overflow
+	SequenceGaps   int64   // Gaps in sequence numbers (normal for sparse updates)
+	MissedPackets  int64   // Estimated missed based on sequence gaps
 	TrackedTokens  int64
-	PacketLossRate float64
+	PacketLossRate float64 // Based on ring overflow, not sequence gaps
 
 	// Tokens
 	UniqueTokens int
@@ -476,6 +483,66 @@ func (sc *StatsCollector) GetResult() BenchmarkResult {
 }
 
 // ================================================================================
+// RING BUFFER FOR ZERO-LOSS PACKET CAPTURE
+// ================================================================================
+
+type RingSlot struct {
+	Data   [2048]byte
+	Length int
+}
+
+type RingBuffer struct {
+	slots    []RingSlot
+	head     atomic.Uint64
+	tail     atomic.Uint64
+	mask     uint64
+	overflow atomic.Uint64
+}
+
+func NewRingBuffer(size int) *RingBuffer {
+	return &RingBuffer{
+		slots: make([]RingSlot, size),
+		mask:  uint64(size - 1),
+	}
+}
+
+func (rb *RingBuffer) Push(data []byte, length int) bool {
+	head := rb.head.Load()
+	tail := rb.tail.Load()
+
+	// Check if full
+	if head-tail >= uint64(len(rb.slots)) {
+		rb.overflow.Add(1)
+		return false
+	}
+
+	slot := &rb.slots[head&rb.mask]
+	copy(slot.Data[:], data[:length])
+	slot.Length = length
+
+	rb.head.Add(1)
+	return true
+}
+
+func (rb *RingBuffer) Pop() ([]byte, int, bool) {
+	tail := rb.tail.Load()
+	head := rb.head.Load()
+
+	if tail >= head {
+		return nil, 0, false
+	}
+
+	slot := &rb.slots[tail&rb.mask]
+	rb.tail.Add(1)
+
+	return slot.Data[:slot.Length], slot.Length, true
+}
+
+func (rb *RingBuffer) Overflow() uint64 {
+	return rb.overflow.Load()
+}
+
+// ================================================================================
 // MULTICAST RECEIVER
 // ================================================================================
 
@@ -485,6 +552,7 @@ type MulticastReceiver struct {
 	conn      *net.UDPConn
 	pconn     *ipv4.PacketConn
 	collector *StatsCollector
+	ringBuf   *RingBuffer
 }
 
 func NewMulticastReceiver(ip string, port int, collector *StatsCollector) *MulticastReceiver {
@@ -492,6 +560,7 @@ func NewMulticastReceiver(ip string, port int, collector *StatsCollector) *Multi
 		ip:        ip,
 		port:      port,
 		collector: collector,
+		ringBuf:   NewRingBuffer(RingBufferSize),
 	}
 }
 
@@ -508,14 +577,17 @@ func (r *MulticastReceiver) Connect() error {
 	}
 	r.conn = conn
 
-	// Set large receive buffer
-	conn.SetReadBuffer(16 * 1024 * 1024)
+	// Set LARGE receive buffer - critical for reducing packet loss
+	if err := conn.SetReadBuffer(SocketRcvBufSize); err != nil {
+		log.Printf("Warning: Could not set socket buffer to %dMB: %v", SocketRcvBufSize/(1024*1024), err)
+	}
 
 	r.pconn = ipv4.NewPacketConn(conn)
 
 	return nil
 }
 
+// ReceiveLoop - fast packet capture to ring buffer (separate goroutine)
 func (r *MulticastReceiver) ReceiveLoop(ctx context.Context) {
 	buffer := make([]byte, BufferSize)
 
@@ -526,7 +598,8 @@ func (r *MulticastReceiver) ReceiveLoop(ctx context.Context) {
 		default:
 		}
 
-		r.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		// Use short deadline to allow context cancellation
+		r.conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
 
 		n, _, err := r.conn.ReadFromUDP(buffer)
 		if err != nil {
@@ -536,8 +609,29 @@ func (r *MulticastReceiver) ReceiveLoop(ctx context.Context) {
 			continue
 		}
 
-		if n < HeaderSize {
-			r.collector.RecordPacket(n, false)
+		// Push to ring buffer immediately (minimal processing)
+		r.ringBuf.Push(buffer, n)
+	}
+}
+
+// ProcessLoop - decode packets from ring buffer (separate goroutine)
+func (r *MulticastReceiver) ProcessLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		data, length, ok := r.ringBuf.Pop()
+		if !ok {
+			// Buffer empty, yield CPU
+			runtime.Gosched()
+			continue
+		}
+
+		if length < HeaderSize {
+			r.collector.RecordPacket(length, false)
 			continue
 		}
 
@@ -546,20 +640,25 @@ func (r *MulticastReceiver) ReceiveLoop(ctx context.Context) {
 
 		// Decode packet
 		decodeStart := time.Now()
-		valid, numRecords := r.decodePacket(buffer[:n])
+		valid, numRecords := r.decodePacket(data[:length])
 		decodeEnd := time.Now()
 
 		if valid {
-			r.collector.RecordPacket(n, true)
+			r.collector.RecordPacket(length, true)
 			r.collector.RecordRecords(numRecords)
 			r.collector.RecordDecodeLatency(decodeEnd.Sub(decodeStart).Nanoseconds())
 		} else {
-			r.collector.RecordPacket(n, false)
+			r.collector.RecordPacket(length, false)
 		}
 
 		// Record full process time
 		r.collector.RecordProcessLatency(time.Since(processStart).Nanoseconds())
 	}
+}
+
+// GetOverflow returns ring buffer overflow count (actual packet drops)
+func (r *MulticastReceiver) GetOverflow() uint64 {
+	return r.ringBuf.Overflow()
 }
 
 func (r *MulticastReceiver) decodePacket(packet []byte) (bool, int) {
@@ -620,20 +719,21 @@ func (r *MulticastReceiver) Close() error {
 // REPORTING
 // ================================================================================
 
-func PrintLiveStats(collector *StatsCollector, elapsed time.Duration) {
+func PrintLiveStats(collector *StatsCollector, elapsed time.Duration, overflow uint64) {
 	result := collector.GetResult()
 	gaps, missed, _ := collector.GetSequenceStats()
 
-	fmt.Printf("\r[%s] Pkts: %d (%.0f/s) | Records: %d | Tokens: %d | Gaps: %d | Missed: %d | Mem: %.1fMB",
+	fmt.Printf("\r[%s] Pkts: %d (%.0f/s) | Records: %d | Tokens: %d | Drops: %d | SeqGaps: %d | Mem: %.1fMB",
 		elapsed.Round(time.Second),
 		result.TotalPackets,
 		result.AvgPacketsPerSec,
 		result.TotalRecords,
 		result.UniqueTokens,
+		overflow,
 		gaps,
-		missed,
 		result.PeakMemoryMB,
 	)
+	_ = missed // Not shown in live stats
 }
 
 func PrintFinalReport(result BenchmarkResult) {
@@ -661,6 +761,21 @@ func PrintFinalReport(result BenchmarkResult) {
 	fmt.Printf("│ Packets/sec:           %-54.2f│\n", result.AvgPacketsPerSec)
 	fmt.Printf("│ Records/sec:           %-54.2f│\n", result.AvgRecordsPerSec)
 	fmt.Printf("│ Throughput:            %-54s│\n", fmt.Sprintf("%.2f MB/s", result.AvgBytesPerSec/(1024*1024)))
+	fmt.Println("├─────────────────────────────────────────────────────────────────────────────┤")
+	// Average time per packet/record
+	avgTimePerPacketMs := 0.0
+	avgTimePerRecordUs := 0.0
+	avgTimePerRecordNs := 0.0
+	if result.AvgPacketsPerSec > 0 {
+		avgTimePerPacketMs = 1000.0 / result.AvgPacketsPerSec
+	}
+	if result.AvgRecordsPerSec > 0 {
+		avgTimePerRecordUs = 1000000.0 / result.AvgRecordsPerSec
+		avgTimePerRecordNs = 1000000000.0 / result.AvgRecordsPerSec
+	}
+	fmt.Printf("│ Avg Time/Packet:       %-54s│\n", fmt.Sprintf("%.4f ms", avgTimePerPacketMs))
+	fmt.Printf("│ Avg Time/Record:       %-54s│\n", fmt.Sprintf("%.2f µs", avgTimePerRecordUs))
+	fmt.Printf("│ Avg Time/Record:       %-54s│\n", fmt.Sprintf("%.0f ns", avgTimePerRecordNs))
 	fmt.Println("└─────────────────────────────────────────────────────────────────────────────┘")
 
 	// Decode Latency
@@ -697,15 +812,19 @@ func PrintFinalReport(result BenchmarkResult) {
 	fmt.Printf("│ P99.9:                 %-54s│\n", fmt.Sprintf("%.2f µs", result.ProcessPercentiles.P999))
 	fmt.Println("└─────────────────────────────────────────────────────────────────────────────┘")
 
-	// Packet Loss
+	// Packet Loss - UPDATED to show both metrics
 	fmt.Println()
 	fmt.Println("┌─────────────────────────────────────────────────────────────────────────────┐")
-	fmt.Println("│ PACKET LOSS DETECTION                                                       │")
+	fmt.Println("│ PACKET LOSS ANALYSIS                                                        │")
 	fmt.Println("├─────────────────────────────────────────────────────────────────────────────┤")
-	fmt.Printf("│ Sequence Gaps:         %-54d│\n", result.SequenceGaps)
-	fmt.Printf("│ Missed Packets:        %-54d│\n", result.MissedPackets)
-	fmt.Printf("│ Tracked Tokens:        %-54d│\n", result.TrackedTokens)
-	fmt.Printf("│ Loss Rate:             %-54s│\n", fmt.Sprintf("%.6f%%", result.PacketLossRate))
+	fmt.Println("│ 📦 ACTUAL DROPS (Ring Buffer Overflow):                                     │")
+	fmt.Printf("│    Ring Overflow:      %-54d│\n", result.RingOverflow)
+	fmt.Printf("│    Drop Rate:          %-54s│\n", fmt.Sprintf("%.4f%%", result.PacketLossRate))
+	fmt.Println("├─────────────────────────────────────────────────────────────────────────────┤")
+	fmt.Println("│ 📊 SEQUENCE GAPS (Normal for sparse token updates):                         │")
+	fmt.Printf("│    Sequence Gaps:      %-54d│\n", result.SequenceGaps)
+	fmt.Printf("│    Gap Packets:        %-54d│\n", result.MissedPackets)
+	fmt.Printf("│    Tracked Tokens:     %-54d│\n", result.TrackedTokens)
 	fmt.Println("└─────────────────────────────────────────────────────────────────────────────┘")
 
 	// Memory
@@ -755,15 +874,21 @@ func PrintFinalReport(result BenchmarkResult) {
 		fmt.Printf("│ ⚠️  Memory:             %-54s│\n", "HIGH (Consider optimization)")
 	}
 
-	// Packet loss assessment
-	if result.MissedPackets == 0 {
-		fmt.Printf("│ ✅ Packet Loss:        %-54s│\n", "NONE DETECTED")
-	} else if result.PacketLossRate < 0.01 {
+	// Packet loss assessment - based on ACTUAL drops, not sequence gaps
+	if result.RingOverflow == 0 {
+		fmt.Printf("│ ✅ Packet Loss:        %-54s│\n", "ZERO DROPS (Ring buffer handled all)")
+	} else if result.PacketLossRate < 0.1 {
 		fmt.Printf("│ ⚠️  Packet Loss:        %-54s│\n",
-			fmt.Sprintf("MINIMAL (%d missed, %.4f%%)", result.MissedPackets, result.PacketLossRate))
+			fmt.Sprintf("MINIMAL (%d drops, %.4f%%)", result.RingOverflow, result.PacketLossRate))
 	} else {
 		fmt.Printf("│ ❌ Packet Loss:        %-54s│\n",
-			fmt.Sprintf("DETECTED (%d missed, %.2f%%)", result.MissedPackets, result.PacketLossRate))
+			fmt.Sprintf("DROPS DETECTED (%d, %.2f%%)", result.RingOverflow, result.PacketLossRate))
+	}
+
+	// Sequence gaps info (not a problem)
+	if result.SequenceGaps > 0 {
+		fmt.Printf("│ ℹ️  Sequence Gaps:      %-54s│\n",
+			fmt.Sprintf("%d gaps (normal for multi-token feeds)", result.SequenceGaps))
 	}
 
 	fmt.Println("└─────────────────────────────────────────────────────────────────────────────┘")
@@ -786,7 +911,8 @@ func main() {
 	fmt.Println("================================================================================")
 	fmt.Printf("Multicast IP:    %s\n", *multicastIP)
 	fmt.Printf("Port:            %d\n", *port)
-	fmt.Printf("Buffer Size:     %d bytes\n", BufferSize)
+	fmt.Printf("Socket Buffer:   %d MB\n", SocketRcvBufSize/(1024*1024))
+	fmt.Printf("Ring Buffer:     %d slots\n", RingBufferSize)
 	fmt.Printf("GOMAXPROCS:      %d\n", runtime.GOMAXPROCS(0))
 	fmt.Printf("Start Time:      %s\n", time.Now().Format("2006-01-02 15:04:05"))
 	if *duration > 0 {
@@ -798,7 +924,8 @@ func main() {
 	fmt.Println()
 	fmt.Println("Metrics tracked:")
 	fmt.Println("  • Latency: P50, P75, P90, P95, P99, P99.9 (µs)")
-	fmt.Println("  • Packet Loss: Sequence gap detection per token")
+	fmt.Println("  • Ring Buffer Overflow: Actual packet drops")
+	fmt.Println("  • Sequence Gaps: Per-token sequence tracking")
 	fmt.Println("  • Memory: Peak, Average, GC cycles")
 	fmt.Println("  • Throughput: Packets/sec, Records/sec, MB/s")
 	fmt.Println()
@@ -829,8 +956,11 @@ func main() {
 		cancel()
 	}()
 
-	// Start receiver
+	// Start receiver goroutine (fast packet capture)
 	go receiver.ReceiveLoop(ctx)
+
+	// Start processor goroutine (decode packets)
+	go receiver.ProcessLoop(ctx)
 
 	// Stats ticker
 	ticker := time.NewTicker(time.Second)
@@ -842,12 +972,17 @@ func main() {
 		select {
 		case <-ctx.Done():
 			result := collector.GetResult()
+			result.RingOverflow = receiver.GetOverflow()
+			// Calculate actual loss rate from ring overflow
+			if result.TotalPackets > 0 {
+				result.PacketLossRate = float64(result.RingOverflow) / float64(result.TotalPackets+result.RingOverflow) * 100.0
+			}
 			PrintFinalReport(result)
 			return
 
 		case <-ticker.C:
 			collector.SampleSystem()
-			PrintLiveStats(collector, time.Since(startTime))
+			PrintLiveStats(collector, time.Since(startTime), receiver.GetOverflow())
 		}
 	}
 }

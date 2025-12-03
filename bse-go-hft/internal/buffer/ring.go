@@ -7,10 +7,14 @@ import (
 
 const (
 	// DefaultRingSize is the default number of slots (power of 2)
-	DefaultRingSize = 1 << 16 // 65536 slots
+	// Reduced from 65536 to 4096 for lower memory footprint
+	// 4096 slots @ ~1700 bytes = ~7MB per feed (vs 128MB before)
+	DefaultRingSize = 1 << 12 // 4096 slots
 
 	// DefaultPacketSize is the maximum packet size
-	DefaultPacketSize = 2048
+	// BSE packets are typically 36 header + 6*264 records = 1620 bytes max
+	// Using 1700 for safety margin (reduced from 2048)
+	DefaultPacketSize = 1700
 )
 
 // RingBuffer is a lock-free Single-Producer Single-Consumer queue

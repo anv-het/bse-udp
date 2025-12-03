@@ -40,6 +40,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"syscall"
 	"time"
@@ -53,6 +54,18 @@ import (
 	"bse-go-hft/internal/tokens"
 	"bse-go-hft/pkg/domain"
 )
+
+func init() {
+	// HFT Optimizations:
+	// 1. Set GOGC to 50% (more frequent but smaller GC pauses)
+	debug.SetGCPercent(50)
+
+	// 2. Set memory limit to 150MB to prevent runaway memory usage
+	debug.SetMemoryLimit(150 * 1024 * 1024)
+
+	// 3. Use all available CPU cores
+	runtime.GOMAXPROCS(runtime.NumCPU())
+}
 
 func main() {
 	// Command-line flags
