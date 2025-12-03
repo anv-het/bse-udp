@@ -44,6 +44,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/binary"
 	"encoding/csv"
 	"flag"
@@ -51,6 +52,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,39 +102,163 @@ type TickData struct {
 }
 
 // ================================================================================
-// SIMPLE SYMBOL MAPPING (Hardcoded for common tokens)
+// TOKEN MAP - Loaded from Contract Master
 // ================================================================================
 
-var CommonSymbols = map[uint32]string{
-	// EQ - Equity Cash (Port 26001)
-	500325: "RELIANCE",
-	500180: "HDFCBANK",
-	532540: "TCS",
-	500209: "INFY",
-	500112: "SBIN",
-	500510: "LT",
-	500696: "HINDUNILVR",
-	532174: "ICICIBANK",
-	500247: "KOTAKBANK",
-	500875: "ITC",
-	532454: "BHARTIARTL",
-	500034: "BAJFINANCE",
-	500182: "HEROMOTOCO",
-	500010: "HDFC",
-	500103: "BHEL",
+// TokenInfo holds contract details
+type TokenInfo struct {
+	Symbol     string
+	Contract   string
+	Expiry     string
+	OptionType string
+	Strike     float64
+}
 
-	// FO - SENSEX Futures/Options (Port 26002)
-	873830: "SENSEX FUT DEC",
-	861384: "SENSEX FUT NOV",
-	880000: "SENSEX OPT",
-	842364: "SENSEX FUT",
+// Global token map - loaded from CSV files
+var TokenMap = make(map[uint32]*TokenInfo)
+
+// loadContractMaster loads F&O tokens from Contract Master CSV
+func loadContractMaster() int {
+	// Find latest contract master file
+	pattern := "data/tokens/BSE_EQD_CONTRACT_*.csv"
+	files, err := filepath.Glob(pattern)
+	if err != nil || len(files) == 0 {
+		return 0
+	}
+
+	// Use the latest file (sort by name - date format ensures order)
+	csvPath := files[len(files)-1]
+	
+	file, err := os.Open(csvPath)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB buffer
+	
+	count := 0
+	lineNum := 0
+	
+	for scanner.Scan() {
+		lineNum++
+		line := scanner.Text()
+		
+		// Skip header
+		if lineNum == 1 && strings.HasPrefix(line, "FinInstrmId") {
+			continue
+		}
+		
+		fields := strings.Split(line, ",")
+		if len(fields) < 20 {
+			continue
+		}
+		
+		// Parse token (column 0)
+		tokenID, err := strconv.ParseUint(fields[0], 10, 32)
+		if err != nil || tokenID == 0 {
+			continue
+		}
+		
+		// Parse contract details
+		symbol := fields[3]      // TckrSymb (underlying)
+		contract := fields[18]   // Contract name (e.g., SENSEX26JAN85500CE)
+		expiry := fields[4]      // Expiry date
+		optType := fields[6]     // Option type (CE/PE/XX)
+		
+		// Parse strike price
+		strike := 0.0
+		if len(fields) > 5 {
+			if s, err := strconv.ParseFloat(fields[5], 64); err == nil {
+				strike = s / 100.0 // Convert paise to rupees
+			}
+		}
+		
+		TokenMap[uint32(tokenID)] = &TokenInfo{
+			Symbol:     symbol,
+			Contract:   contract,
+			Expiry:     expiry,
+			OptionType: optType,
+			Strike:     strike,
+		}
+		count++
+	}
+	
+	return count
+}
+
+// loadBhavCopy loads EQ tokens from BhavCopy CSV
+func loadBhavCopy() int {
+	// Find latest BhavCopy file
+	pattern := "data/tokens/BhavCopy_BSE_CM_*.csv"
+	files, err := filepath.Glob(pattern)
+	if err != nil || len(files) == 0 {
+		return 0
+	}
+
+	csvPath := files[len(files)-1]
+	
+	file, err := os.Open(csvPath)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	
+	count := 0
+	lineNum := 0
+	
+	for scanner.Scan() {
+		lineNum++
+		line := scanner.Text()
+		
+		// Skip header
+		if lineNum == 1 {
+			continue
+		}
+		
+		fields := strings.Split(line, ",")
+		if len(fields) < 8 {
+			continue
+		}
+		
+		// Parse token (column 5 = FinInstrmId)
+		tokenID, err := strconv.ParseUint(fields[5], 10, 32)
+		if err != nil || tokenID == 0 {
+			continue
+		}
+		
+		// Parse symbol (column 7 = TckrSymb)
+		symbol := fields[7]
+		
+		TokenMap[uint32(tokenID)] = &TokenInfo{
+			Symbol:   symbol,
+			Contract: symbol,
+		}
+		count++
+	}
+	
+	return count
 }
 
 func getSymbol(token uint32) string {
-	if sym, ok := CommonSymbols[token]; ok {
-		return sym
+	if info, ok := TokenMap[token]; ok {
+		if info.Contract != "" {
+			return info.Contract
+		}
+		return info.Symbol
 	}
 	return fmt.Sprintf("TOKEN_%d", token)
+}
+
+func getTokenInfo(token uint32) *TokenInfo {
+	if info, ok := TokenMap[token]; ok {
+		return info
+	}
+	return nil
 }
 
 // ================================================================================
@@ -251,11 +377,11 @@ func displayTick(data *TickData, tickNum int, prevLTP float64) {
 	fmt.Printf("  TICK #%-6d  │  %s  │  Token: %d  │  %s\n", tickNum, now, data.Token, data.Symbol)
 	fmt.Printf("%s\n", strings.Repeat("═", 80))
 
-	fmt.Printf("\n  💰 LTP: ₹%,.2f%s\n", data.LTP, changeStr)
+	fmt.Printf("\n  💰 LTP: ₹%.2f%s\n", data.LTP, changeStr)
 	fmt.Printf("  %s\n", strings.Repeat("─", 72))
-	fmt.Printf("  Open: ₹%,.2f  │  High: ₹%,.2f  │  Low: ₹%,.2f  │  Prev: ₹%,.2f\n",
+	fmt.Printf("  Open: ₹%.2f  │  High: ₹%.2f  │  Low: ₹%.2f  │  Prev: ₹%.2f\n",
 		data.Open, data.High, data.Low, data.PrevClose)
-	fmt.Printf("  ATP:  ₹%,.2f  │  Volume: %d  │  Turnover: ₹%dL  │  Seq: %d\n",
+	fmt.Printf("  ATP:  ₹%.2f  │  Volume: %d  │  Turnover: ₹%dL  │  Seq: %d\n",
 		data.ATP, data.Volume, data.TurnoverLakhs, data.SeqNum)
 
 	// Order Book
@@ -442,6 +568,21 @@ func monitorToken(targetToken uint32, port int, multicastIP string, maxTicks int
 
 	symbol := getSymbol(targetToken)
 	fmt.Printf("\n📊 Token %d → %s\n", targetToken, symbol)
+	
+	// Show detailed token info if available
+	if info := getTokenInfo(targetToken); info != nil {
+		fmt.Printf("   Symbol:     %s\n", info.Symbol)
+		fmt.Printf("   Contract:   %s\n", info.Contract)
+		if info.Expiry != "" {
+			fmt.Printf("   Expiry:     %s\n", info.Expiry)
+		}
+		if info.OptionType != "" && info.OptionType != "XX" {
+			fmt.Printf("   Type:       %s\n", info.OptionType)
+		}
+		if info.Strike > 0 {
+			fmt.Printf("   Strike:     ₹%.2f\n", info.Strike)
+		}
+	}
 
 	// Create CSV writer
 	csvWriter, err := NewCSVWriter(targetToken, symbol)
@@ -451,6 +592,7 @@ func monitorToken(targetToken uint32, port int, multicastIP string, maxTicks int
 	}
 	defer csvWriter.Close()
 	fmt.Printf("\n💾 CSV File: %s\n", csvWriter.filename)
+
 
 	// Connect to multicast
 	fmt.Printf("\n📡 Connecting to %s:%d...\n", multicastIP, port)
@@ -580,6 +722,12 @@ func main() {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
+
+	// Load token maps from CSV files
+	fmt.Println("\n📂 Loading token maps...")
+	foCount := loadContractMaster()
+	eqCount := loadBhavCopy()
+	fmt.Printf("   ✅ Loaded %d F&O contracts + %d EQ scripts = %d total\n", foCount, eqCount, len(TokenMap))
 
 	monitorToken(uint32(*token), *port, *ip, *ticks)
 }
