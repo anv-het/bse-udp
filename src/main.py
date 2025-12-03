@@ -41,17 +41,22 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from connection import BSEMulticastConnection
 from packet_receiver import PacketReceiver
+from live_stats import LiveStatsTracker, get_tracker, reset_tracker
 
-# Configure logging
+# Configure logging - less verbose for cleaner benchmark output
+file_handler = logging.FileHandler('bse_reader.log')
+file_handler.setLevel(logging.DEBUG)  # Full debug to file
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.WARNING)  # Less console noise
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bse_reader.log'),
-        logging.StreamHandler()
-    ]
+    handlers=[file_handler, console_handler]
 )
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)  # Main module at INFO level
 
 # Global shutdown event for thread coordination
 shutdown_event = threading.Event()
@@ -234,7 +239,8 @@ def run_segment_receiver(
     config: dict,
     token_map: dict,
     segment: str,
-    connection: BSEMulticastConnection
+    connection: BSEMulticastConnection,
+    stats_tracker: LiveStatsTracker
 ):
     """
     Run packet receiver for a specific segment in a thread.
@@ -244,9 +250,13 @@ def run_segment_receiver(
         token_map: Token mapping dictionary
         segment: 'CM' or 'FO'
         connection: BSEMulticastConnection for this segment
+        stats_tracker: LiveStatsTracker for benchmark statistics
     """
     segment_name = "Equity Cash" if segment == 'CM' else "Derivatives (F&O)"
     port = 26001 if segment == 'CM' else 26002
+    
+    # Get segment stats from tracker
+    seg_stats = stats_tracker.get_segment(segment)
     
     try:
         logger.info(f"[{segment}] Starting {segment_name} receiver on port {port}...")
@@ -287,14 +297,42 @@ def run_segment_receiver(
             try:
                 # Receive with short timeout to check shutdown_event frequently
                 sock.settimeout(0.5)
+                
+                # Start timing for latency measurement
+                start_time = time.perf_counter()
+                
                 packet, addr = sock.recvfrom(2000)
+                
+                # Decode timing
+                decode_start = time.perf_counter()
                 receiver._process_packet(packet, addr)
+                decode_end = time.perf_counter()
+                
+                process_end = time.perf_counter()
+                
+                # Calculate latencies in microseconds
+                decode_time_us = (decode_end - decode_start) * 1_000_000
+                process_time_us = (process_end - start_time) * 1_000_000
+                
                 receiver.stats['packets_received'] += 1
                 receiver.stats['bytes_received'] += len(packet)
                 
-                # Log every 10 packets
-                if receiver.stats['packets_received'] % 10 == 0:
-                    logger.info(
+                # Update benchmark stats
+                # Estimate records from packet size (66 bytes per record after 36-byte header)
+                records_estimate = max(1, (len(packet) - 36) // 66)
+                quotes_saved = receiver.stats.get('quotes_saved', 0)
+                
+                seg_stats.add_packet(
+                    packet_size=len(packet),
+                    records=records_estimate,
+                    quotes=1 if quotes_saved > 0 else 0,
+                    decode_time_us=decode_time_us,
+                    process_time_us=process_time_us
+                )
+                
+                # Log every 10 packets (less verbose now that we have live stats)
+                if receiver.stats['packets_received'] % 100 == 0:
+                    logger.debug(
                         f"[{segment}] 📦 Packets: {receiver.stats['packets_received']}, "
                         f"Valid: {receiver.stats['packets_valid']}, "
                         f"Type 2020: {receiver.stats['packets_2020']}"
@@ -335,18 +373,15 @@ def main():
     except AttributeError:
         pass  # Not on Windows
     
-    logger.info("\n" + "=" * 70)
-    logger.info("🚀 BSE UDP Market Data Reader - DUAL FEED")
-    logger.info("=" * 70)
-    logger.info("Purpose: Simultaneous CM + F&O data collection")
-    logger.info("Outputs: YYYYMMDD_CM_quotes.csv, YYYYMMDD_FO_quotes.csv")
-    logger.info("=" * 70 + "\n")
+    # Initialize stats tracker
+    stats_tracker = reset_tracker()
     
     connections = []
     threads = []
     
     try:
-        # Step 1: Load configuration
+        # Step 1: Load configuration (silently for cleaner output)
+        logging.getLogger().setLevel(logging.WARNING)  # Reduce logging during startup
         config = load_config('config.json')
         
         # Step 2: Check enabled segments
@@ -358,7 +393,25 @@ def main():
             logger.error("❌ No segments enabled! Enable cm_enabled and/or fo_enabled in config.json")
             return 1
         
-        # Step 3: Load unified token map
+        # Get multicast config
+        mc_cm = config.get('multicast_cm', {})
+        mc_fo = config.get('multicast_fo', config.get('multicast', {}))
+        multicast_ip = mc_cm.get('ip', '239.1.2.5')
+        cm_port = mc_cm.get('port', 26001)
+        fo_port = mc_fo.get('port', 26002)
+        buffer_size = config.get('buffer_size', 2048)
+        
+        # Print benchmark header
+        stats_tracker.print_header(
+            multicast_ip=multicast_ip,
+            cm_port=cm_port,
+            fo_port=fo_port,
+            buffer_size=buffer_size,
+            cm_enabled=cm_enabled,
+            fo_enabled=fo_enabled
+        )
+        
+        # Step 3: Load unified token map (silently)
         keep_days = config.get('data_management', {}).get('keep_days', 2)
         token_map = load_token_map_unified(use_api=True, keep_days=keep_days)
         
@@ -366,57 +419,52 @@ def main():
             logger.error("❌ Failed to load token map!")
             return 1
         
-        # Step 4: Create connections for enabled segments
-        logger.info("\n" + "=" * 70)
-        logger.info("📡 CREATING CONNECTIONS")
-        logger.info("=" * 70)
+        # Restore logging level
+        logging.getLogger().setLevel(logging.INFO)
         
+        # Step 4: Create connections for enabled segments
         if cm_enabled:
             cm_connection = create_segment_connection(config, 'CM')
             connections.append(('CM', cm_connection))
-            logger.info("✅ CM connection prepared (port 26001)")
+            stats_tracker.add_segment('CM')
         
         if fo_enabled:
             fo_connection = create_segment_connection(config, 'FO')
             connections.append(('FO', fo_connection))
-            logger.info("✅ FO connection prepared (port 26002)")
+            stats_tracker.add_segment('FO')
         
         # Step 5: Start receiver threads (NOT daemon - for proper cleanup)
-        logger.info("\n" + "=" * 70)
-        logger.info("🚀 STARTING RECEIVERS")
-        logger.info("=" * 70)
-        
         for segment, connection in connections:
             thread = threading.Thread(
                 target=run_segment_receiver,
-                args=(config, token_map, segment, connection),
+                args=(config, token_map, segment, connection, stats_tracker),
                 name=f"Receiver-{segment}",
                 daemon=False  # Non-daemon for proper cleanup
             )
             threads.append(thread)
             thread.start()
-            logger.info(f"✅ Started {segment} receiver thread")
         
-        logger.info("\n" + "=" * 70)
-        logger.info("✅ ALL RECEIVERS RUNNING")
-        logger.info("=" * 70)
-        logger.info(f"Active threads: {len(threads)}")
-        logger.info("Press Ctrl+C to stop all receivers")
-        logger.info("=" * 70 + "\n")
+        # Print connected message
+        stats_tracker.print_connected()
+        
+        # Start live stats tracking (every 5 seconds)
+        stats_tracker.start_interval_tracking(interval_sec=5)
         
         # Step 6: Wait for shutdown signal or threads to finish
         while not shutdown_event.is_set():
             # Check if all threads are dead
             if all(not t.is_alive() for t in threads):
-                logger.info("All threads stopped")
                 break
             time.sleep(0.5)  # Check every 500ms
         
         # Signal shutdown to all threads
         shutdown_event.set()
         
+        # Stop stats tracking
+        stats_tracker.stop()
+        
         # Wait for threads to finish (with timeout)
-        logger.info("\n⏳ Waiting for threads to finish...")
+        print("\n⏳ Waiting for threads to finish...")
         for thread in threads:
             thread.join(timeout=2.0)
             if thread.is_alive():
@@ -433,16 +481,23 @@ def main():
         # Cleanup
         shutdown_event.set()
         
-        logger.info("\n🔌 Cleaning up connections...")
+        # Stop stats tracking if running
+        try:
+            stats_tracker.stop()
+        except:
+            pass
+        
+        # Disconnect all connections
         for segment, connection in connections:
             try:
                 connection.disconnect()
             except:
                 pass
         
-        logger.info("\n" + "=" * 70)
-        logger.info("👋 BSE UDP Reader shutdown complete")
-        logger.info("=" * 70 + "\n")
+        # Print final benchmark report
+        if stats_tracker.segments:
+            print("\n⚠️  Received interrupt signal, stopping...")
+            stats_tracker.print_final_report()
     
     return 0
 

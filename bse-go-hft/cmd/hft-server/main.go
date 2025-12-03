@@ -2197,18 +2197,18 @@ func printDualFeedReport(stats *Stats, tokenMap *TokenMap, eqSaver, foSaver *CSV
 
 	fmt.Println("\n")
 	fmt.Println("████████████████████████████████████████████████████████████████████████████████")
-	fmt.Println("█                BSE HFT SERVER - DUAL FEED FINAL REPORT                      █")
+	fmt.Println("█                BSE HFT SERVER - DUAL FEED FINAL REPORT                       █")
 	fmt.Println("████████████████████████████████████████████████████████████████████████████████")
 	fmt.Println()
 
 	fmt.Println("┌─────────────────────────────────────────────────────────────────────────────┐")
 	fmt.Println("│ SESSION SUMMARY                                                             │")
 	fmt.Println("├─────────────────────────────────────────────────────────────────────────────┤")
-	fmt.Printf("│ Duration:              %-54s│\n", duration.Round(time.Millisecond))
-	fmt.Printf("│ Total Packets:         %-54d│\n", packets)
-	fmt.Printf("│ Total Records:         %-54d│\n", records)
-	fmt.Printf("│ Quotes Saved:          %-54d│\n", saved)
-	fmt.Printf("│ Tokens in Master:      %-54d│\n", tokenMap.Len())
+	fmt.Printf("│ Duration:             %-54s│\n", duration.Round(time.Millisecond))
+	fmt.Printf("│ Total Packets:        %-54d│\n", packets)
+	fmt.Printf("│ Total Records:        %-54d│\n", records)
+	fmt.Printf("│ Quotes Saved:         %-54d│\n", saved)
+	fmt.Printf("│ Tokens in Master:     %-54d│\n", tokenMap.Len())
 	fmt.Println("└─────────────────────────────────────────────────────────────────────────────┘")
 
 	fmt.Println()
@@ -2216,10 +2216,10 @@ func printDualFeedReport(stats *Stats, tokenMap *TokenMap, eqSaver, foSaver *CSV
 	fmt.Println("│ FEED BREAKDOWN                                                              │")
 	fmt.Println("├─────────────────────────────────────────────────────────────────────────────┤")
 	if enableEQ {
-		fmt.Printf("│ EQ (Equity Cash):      %-54s│\n", fmt.Sprintf("%d quotes", eqCount))
+		fmt.Printf("│ EQ (Equity Cash):     %-54s│\n", fmt.Sprintf("%d quotes", eqCount))
 	}
 	if enableFO {
-		fmt.Printf("│ FO (F&O Derivatives):  %-54s│\n", fmt.Sprintf("%d quotes", foCount))
+		fmt.Printf("│ FO (F&O Derivatives): %-54s│\n", fmt.Sprintf("%d quotes", foCount))
 	}
 	fmt.Println("└─────────────────────────────────────────────────────────────────────────────┘")
 
@@ -2227,28 +2227,28 @@ func printDualFeedReport(stats *Stats, tokenMap *TokenMap, eqSaver, foSaver *CSV
 	fmt.Println("┌─────────────────────────────────────────────────────────────────────────────┐")
 	fmt.Println("│ THROUGHPUT                                                                  │")
 	fmt.Println("├─────────────────────────────────────────────────────────────────────────────┤")
-	fmt.Printf("│ Packets/sec:           %-54.2f│\n", pps)
-	fmt.Printf("│ Records/sec:           %-54.2f│\n", rps)
-	fmt.Printf("│ Data Rate:             %-54s│\n", fmt.Sprintf("%.3f MB/s", mbps))
+	fmt.Printf("│ Packets/sec:          %-54.2f│\n", pps)
+	fmt.Printf("│ Records/sec:          %-54.2f│\n", rps)
+	fmt.Printf("│ Data Rate:            %-54s│\n", fmt.Sprintf("%.3f MB/s", mbps))
 	fmt.Println("└─────────────────────────────────────────────────────────────────────────────┘")
 
 	fmt.Println()
 	fmt.Println("┌─────────────────────────────────────────────────────────────────────────────┐")
 	fmt.Println("│ LATENCY (Decode + Save)                                                     │")
 	fmt.Println("├─────────────────────────────────────────────────────────────────────────────┤")
-	fmt.Printf("│ Average:               %-54s│\n", fmt.Sprintf("%.2f µs", avgLatency))
-	fmt.Printf("│ P50 (Median):          %-54s│\n", fmt.Sprintf("%.2f µs", percentiles.P50))
-	fmt.Printf("│ P90:                   %-54s│\n", fmt.Sprintf("%.2f µs", percentiles.P90))
-	fmt.Printf("│ P99:                   %-54s│\n", fmt.Sprintf("%.2f µs", percentiles.P99))
-	fmt.Printf("│ P99.9:                 %-54s│\n", fmt.Sprintf("%.2f µs", percentiles.P999))
+	fmt.Printf("│ Average:              %-54s│\n", fmt.Sprintf("%.2f µs", avgLatency))
+	fmt.Printf("│ P50 (Median):         %-54s│\n", fmt.Sprintf("%.2f µs", percentiles.P50))
+	fmt.Printf("│ P90:                  %-54s│\n", fmt.Sprintf("%.2f µs", percentiles.P90))
+	fmt.Printf("│ P99:                  %-54s│\n", fmt.Sprintf("%.2f µs", percentiles.P99))
+	fmt.Printf("│ P99.9:                %-54s│\n", fmt.Sprintf("%.2f µs", percentiles.P999))
 	fmt.Println("└─────────────────────────────────────────────────────────────────────────────┘")
 
 	fmt.Println()
 	fmt.Println("┌─────────────────────────────────────────────────────────────────────────────┐")
 	fmt.Println("│ MEMORY                                                                      │")
 	fmt.Println("├─────────────────────────────────────────────────────────────────────────────┤")
-	fmt.Printf("│ Peak Memory:           %-54s│\n", fmt.Sprintf("%.2f MB", peakMem))
-	fmt.Printf("│ GOMAXPROCS:            %-54d│\n", runtime.GOMAXPROCS(0))
+	fmt.Printf("│ Peak Memory:          %-54s│\n", fmt.Sprintf("%.2f MB", peakMem))
+	fmt.Printf("│ GOMAXPROCS:           %-54d│\n", runtime.GOMAXPROCS(0))
 	fmt.Println("└─────────────────────────────────────────────────────────────────────────────┘")
 
 	fmt.Println()
@@ -2256,12 +2256,12 @@ func printDualFeedReport(stats *Stats, tokenMap *TokenMap, eqSaver, foSaver *CSV
 	fmt.Println("│ OUTPUT FILES                                                                │")
 	fmt.Println("├─────────────────────────────────────────────────────────────────────────────┤")
 	if enableEQ {
-		fmt.Printf("│ EQ CSV:                %-54s│\n", filepath.Base(eqFile))
-		fmt.Printf("│ EQ Rows:               %-54d│\n", eqCount)
+		fmt.Printf("│ EQ CSV:               %-54s│\n", filepath.Base(eqFile))
+		fmt.Printf("│ EQ Rows:              %-54d│\n", eqCount)
 	}
 	if enableFO {
-		fmt.Printf("│ FO CSV:                %-54s│\n", filepath.Base(foFile))
-		fmt.Printf("│ FO Rows:               %-54d│\n", foCount)
+		fmt.Printf("│ FO CSV:               %-54s│\n", filepath.Base(foFile))
+		fmt.Printf("│ FO Rows:              %-54d│\n", foCount)
 	}
 	fmt.Println("└─────────────────────────────────────────────────────────────────────────────┘")
 
@@ -2275,8 +2275,8 @@ func printDualFeedReport(stats *Stats, tokenMap *TokenMap, eqSaver, foSaver *CSV
 	fmt.Println("┌─────────────────────────────────────────────────────────────────────────────┐")
 	fmt.Println("│ MISSED TOKENS (Not in Token Master)                                         │")
 	fmt.Println("├─────────────────────────────────────────────────────────────────────────────┤")
-	fmt.Printf("│ Total Missed:          %-54d│\n", missedCount)
-	fmt.Printf("│ Unique Tokens:         %-54d│\n", uniqueMissed)
+	fmt.Printf("│ Total Missed:         %-54d│\n", missedCount)
+	fmt.Printf("│ Unique Tokens:        %-54d│\n", uniqueMissed)
 	fmt.Println("├─────────────────────────────────────────────────────────────────────────────┤")
 
 	if uniqueMissed > 0 {
@@ -2284,7 +2284,7 @@ func printDualFeedReport(stats *Stats, tokenMap *TokenMap, eqSaver, foSaver *CSV
 		fmt.Println("│ Top Missed Tokens (Token → Count):                                          │")
 		for i, mt := range topMissed {
 			line := fmt.Sprintf("   %2d. Token %-12d → %d occurrences", i+1, mt.Token, mt.Count)
-			fmt.Printf("│ %-75s│\n", line)
+			fmt.Printf("│ %-75s │\n", line)
 		}
 	} else {
 		fmt.Println("│ ✅ All tokens found in master file!                                         │")

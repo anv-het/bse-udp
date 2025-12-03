@@ -4,10 +4,6 @@
     "fo_enabled": true,
     "comment": "Enable/disable Equity Cash (CM) and Derivatives (F&O) feeds"
   },
-
-gistered as `
-
-You said:
   "multicast": {
     "ip": "239.1.2.5",
     "port": 26002,
@@ -26,30 +22,6 @@ You said:
     "segment": "Equity Derivatives (F&O)",
     "env": "production"
   },
-
-
-// MD PLAYER IP CONFIG FOR BSE NFCAST (PRODUCTION)
-  // "multicast": {
-  //   "ip": "231.31.31.4",
-  //   "port": 18901,
-  //   "segment": "Equity Derivatives (F&O)",
-  //   "env": "production"
-  // },
-  // "multicast_cm": {
-  //   "ip": "231.31.31.4",
-  //   "port": 18901,
-  //   "segment": "Equity Cash (CM)",
-  //   "env": "production"
-  // },
-  // "multicast_fo": {
-  //   "ip": "231.31.31.4",
-  //   "port": 18901,
-  //   "segment": "Equity Derivatives (F&O)",
-  //   "env": "production"
-  // },
-
-
-
   "api": {
     "base_url": "http://192.168.102.166:2060/v1/sftp-files",
     "api_type": "erp",
@@ -80,9 +52,11 @@ You said:
     "  - BSE_EQD_CONTRACT_*.csv: F&O contracts for port 26002",
     "",
     "Packet Structure:",
-    "  36-byte header + N×264-byte records with full order book",
+    "  36-byte header + N x 264-byte records with full order book",
     "  Includes 5-level bid/ask depth at offset 104-263",
     "",
-    "BSE Market Hours: 9:00 AM - 3:30 PM IST (Mon-Fri)"
+    "BSE Market Hours: 9:00 AM - 3:30 PM IST (Mon-Fri)",
+    "",
+    "MD PLAYER IP CONFIG (Alternative): ip=231.31.31.4, port=18901"
   ]
 }
