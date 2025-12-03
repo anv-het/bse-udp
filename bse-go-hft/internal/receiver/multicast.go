@@ -24,9 +24,9 @@ func DefaultConfig() Config {
 	return Config{
 		MulticastIP:  "239.1.2.5",
 		Port:         26001,
-		BufferSize:   65536,
-		SocketRcvBuf: 16 * 1024 * 1024, // 16MB
-		ReadTimeout:  100 * time.Millisecond,
+		BufferSize:   2048,             // Packet buffer size
+		SocketRcvBuf: 32 * 1024 * 1024, // 32MB socket buffer for ZERO drops
+		ReadTimeout:  50 * time.Millisecond,
 	}
 }
 

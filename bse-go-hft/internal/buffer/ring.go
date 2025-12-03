@@ -7,9 +7,9 @@ import (
 
 const (
 	// DefaultRingSize is the default number of slots (power of 2)
-	// Reduced from 65536 to 4096 for lower memory footprint
-	// 4096 slots @ ~1700 bytes = ~7MB per feed (vs 128MB before)
-	DefaultRingSize = 1 << 12 // 4096 slots
+	// 16384 slots for ZERO packet drops at high throughput
+	// 16384 slots @ ~1700 bytes = ~28MB per feed
+	DefaultRingSize = 1 << 14 // 16384 slots (was 4096)
 
 	// DefaultPacketSize is the maximum packet size
 	// BSE packets are typically 36 header + 6*264 records = 1620 bytes max

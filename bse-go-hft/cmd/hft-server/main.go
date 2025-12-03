@@ -285,11 +285,20 @@ func runReceiver(
 		rcv.ReceiveLoop(ctx)
 	}()
 
+	// Drop tracking ticker
+	dropTicker := time.NewTicker(1 * time.Second)
+	defer dropTicker.Stop()
+
 	// Process packets from ring buffer
 	for {
 		select {
 		case <-ctx.Done():
+			// Final drop count update
+			tracker.RecordRingDrops(segment, ringBuf.GetStats().DropCount)
 			return
+		case <-dropTicker.C:
+			// Periodic drop count update
+			tracker.RecordRingDrops(segment, ringBuf.GetStats().DropCount)
 		default:
 		}
 

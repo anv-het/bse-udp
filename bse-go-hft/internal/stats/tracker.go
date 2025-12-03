@@ -27,6 +27,10 @@ type Tracker struct {
 	eqQuotes  atomic.Uint64
 	foQuotes  atomic.Uint64
 
+	// Ring buffer drops (ACTUAL packet loss)
+	eqRingDrops atomic.Uint64
+	foRingDrops atomic.Uint64
+
 	// Latency tracking
 	decodeLatency  *metrics.LatencyTracker
 	processLatency *metrics.LatencyTracker
@@ -81,6 +85,20 @@ func (t *Tracker) RecordQuote(segment string) {
 	} else {
 		t.foQuotes.Add(1)
 	}
+}
+
+// RecordRingDrops records ring buffer overflow drops (ACTUAL packet loss)
+func (t *Tracker) RecordRingDrops(segment string, drops uint64) {
+	if segment == "EQ" {
+		t.eqRingDrops.Store(drops)
+	} else {
+		t.foRingDrops.Store(drops)
+	}
+}
+
+// GetRingDrops returns total ring buffer drops
+func (t *Tracker) GetRingDrops() uint64 {
+	return t.eqRingDrops.Load() + t.foRingDrops.Load()
 }
 
 // RecordDecodeLatency records decode latency in nanoseconds
@@ -261,6 +279,7 @@ func (t *Tracker) PrintLiveStats(tokenCount int) {
 	packets := t.TotalPackets()
 	records := t.TotalRecords()
 	missed := t.MissedTokenCount()
+	drops := t.GetRingDrops()
 
 	pps := float64(0)
 	rps := float64(0)
@@ -269,10 +288,10 @@ func (t *Tracker) PrintLiveStats(tokenCount int) {
 		rps = float64(records) / elapsed
 	}
 
-	fmt.Printf("\r[%.0fs] Pkts: %d (%.0f/s) | Records: %d (%.0f/s) | EQ: %d | FO: %d | Missed: %d | Tokens: %d",
+	fmt.Printf("\r[%.0fs] Pkts: %d (%.0f/s) | Records: %d (%.0f/s) | EQ: %d | FO: %d | Drops: %d | Missed: %d | Tokens: %d",
 		elapsed, packets, pps, records, rps,
 		t.eqQuotes.Load(), t.foQuotes.Load(),
-		missed, tokenCount)
+		drops, missed, tokenCount)
 }
 
 // PrintFinalReport prints comprehensive final statistics with beautiful formatting
@@ -389,6 +408,25 @@ func (t *Tracker) PrintFinalReport(tokenCount int) {
 	fmt.Printf("│    P99.9          %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P999, saveP.P999, processP.P999)
 	fmt.Println("└──────────────────────────────────────────────────────────────────────────────┘")
 
+	// RING BUFFER DROPS (ACTUAL PACKET LOSS)
+	eqDrops := t.eqRingDrops.Load()
+	foDrops := t.foRingDrops.Load()
+	totalDrops := eqDrops + foDrops
+	totalPackets := t.TotalPackets()
+	dropRate := float64(0)
+	if totalPackets+totalDrops > 0 {
+		dropRate = float64(totalDrops) / float64(totalPackets+totalDrops) * 100.0
+	}
+
+	fmt.Println("\n┌──────────────────────────────────────────────────────────────────────────────┐")
+	fmt.Println("│  📦 RING BUFFER DROPS (Actual Packet Loss)                                   │")
+	fmt.Println("├──────────────────────────────────────────────────────────────────────────────┤")
+	fmt.Printf("│    EQ Ring Drops:        %-56d│\n", eqDrops)
+	fmt.Printf("│    FO Ring Drops:        %-56d│\n", foDrops)
+	fmt.Printf("│    Total Drops:          %-56d│\n", totalDrops)
+	fmt.Printf("│    Drop Rate:            %-56s│\n", fmt.Sprintf("%.4f%%", dropRate))
+	fmt.Println("└──────────────────────────────────────────────────────────────────────────────┘")
+
 	// SEQUENCE & TOKEN TRACKING
 	seqStats := t.GetSequenceStats()
 
@@ -453,6 +491,15 @@ func (t *Tracker) PrintFinalReport(tokenCount int) {
 		fmt.Println("║    Status:  ⚠️  ACCEPTABLE - P99 < 1ms (Algo Trading)                         ║")
 	} else {
 		fmt.Println("║    Status:  ❌ NEEDS OPTIMIZATION - P99 >= 1ms                                ║")
+	}
+
+	// Packet Loss assessment (based on ACTUAL ring drops, not sequence gaps)
+	if totalDrops == 0 {
+		fmt.Println("║    Drops:   ✅ ZERO PACKET DROPS (Perfect capture)                           ║")
+	} else if dropRate < 0.01 {
+		fmt.Printf("║    Drops:   ⚠️  MINIMAL - %d drops (%.4f%%)                                    ║\n", totalDrops, dropRate)
+	} else {
+		fmt.Printf("║    Drops:   ❌ PACKET LOSS - %d drops (%.2f%%) - increase ring buffer          ║\n", totalDrops, dropRate)
 	}
 
 	// Data quality assessment

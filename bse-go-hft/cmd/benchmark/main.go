@@ -404,9 +404,9 @@ type BenchmarkResult struct {
 	TotalGCPauses uint32
 
 	// Packet Loss - Actual vs Sequence
-	RingOverflow   uint64  // Actual drops due to ring buffer overflow
-	SequenceGaps   int64   // Gaps in sequence numbers (normal for sparse updates)
-	MissedPackets  int64   // Estimated missed based on sequence gaps
+	RingOverflow   uint64 // Actual drops due to ring buffer overflow
+	SequenceGaps   int64  // Gaps in sequence numbers (normal for sparse updates)
+	MissedPackets  int64  // Estimated missed based on sequence gaps
 	TrackedTokens  int64
 	PacketLossRate float64 // Based on ring overflow, not sequence gaps
 
