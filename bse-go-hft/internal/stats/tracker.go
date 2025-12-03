@@ -300,14 +300,14 @@ func (t *Tracker) PrintFinalReport(tokenCount int) {
 	elapsedSec := elapsed.Seconds()
 
 	fmt.Println("\n")
-	fmt.Println("╔══════════════════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║                         📊 BSE HFT BENCHMARK REPORT                          ║")
-	fmt.Println("╚══════════════════════════════════════════════════════════════════════════════╝")
+	fmt.Println("╔════════════════════════════════════════════════════════════════════════════════════╗")
+	fmt.Println("║                         📊 BSE HFT BENCHMARK REPORT                                ║")
+	fmt.Println("╚════════════════════════════════════════════════════════════════════════════════════╝")
 
 	// DURATION SECTION
-	fmt.Println("\n┌──────────────────────────────────────────────────────────────────────────────┐")
-	fmt.Println("│  ⏱️  DURATION                                                                 │")
-	fmt.Println("├──────────────────────────────────────────────────────────────────────────────┤")
+	fmt.Println("\n┌──────────────────────────────────────────────────────────────────────────────────┐")
+	fmt.Println("│  ⏱️  DURATION                                                                     │")
+	fmt.Println("├──────────────────────────────────────────────────────────────────────────────────┤")
 	fmt.Printf("│    Total Runtime:        %-52.2f seconds│\n", elapsedSec)
 	fmt.Printf("│    Start Time:           %-56s│\n", t.startTime.Format("15:04:05.000"))
 	fmt.Printf("│    End Time:             %-56s│\n", time.Now().Format("15:04:05.000"))
@@ -398,14 +398,14 @@ func (t *Tracker) PrintFinalReport(tokenCount int) {
 	fmt.Println("├──────────────────────────────────────────────────────────────────────────────┤")
 	fmt.Println("│    Metric            Decode          Save            Total                   │")
 	fmt.Println("│    ─────────────────────────────────────────────────────────                 │")
-	fmt.Printf("│    Min            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeS.Min, saveS.Min, processS.Min)
-	fmt.Printf("│    Avg            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeS.Avg, saveS.Avg, processS.Avg)
-	fmt.Printf("│    Max            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeS.Max, saveS.Max, processS.Max)
+	fmt.Printf("│    Min            %8.2f µs    %8.2f µs    %8.2f µs                  │\n", decodeS.Min, saveS.Min, processS.Min)
+	fmt.Printf("│    Avg            %8.2f µs    %8.2f µs    %8.2f µs                  │\n", decodeS.Avg, saveS.Avg, processS.Avg)
+	fmt.Printf("│    Max            %8.2f µs    %8.2f µs    %8.2f µs                  │\n", decodeS.Max, saveS.Max, processS.Max)
 	fmt.Println("│    ─────────────────────────────────────────────────────────                 │")
-	fmt.Printf("│    P50            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P50, saveP.P50, processP.P50)
-	fmt.Printf("│    P90            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P90, saveP.P90, processP.P90)
-	fmt.Printf("│    P99            %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P99, saveP.P99, processP.P99)
-	fmt.Printf("│    P99.9          %8.2f µs    %8.2f µs    %8.2f µs                   │\n", decodeP.P999, saveP.P999, processP.P999)
+	fmt.Printf("│    P50            %8.2f µs    %8.2f µs    %8.2f µs                  │\n", decodeP.P50, saveP.P50, processP.P50)
+	fmt.Printf("│    P90            %8.2f µs    %8.2f µs    %8.2f µs                  │\n", decodeP.P90, saveP.P90, processP.P90)
+	fmt.Printf("│    P99            %8.2f µs    %8.2f µs    %8.2f µs                  │\n", decodeP.P99, saveP.P99, processP.P99)
+	fmt.Printf("│    P99.9          %8.2f µs    %8.2f µs    %8.2f µs                  │\n", decodeP.P999, saveP.P999, processP.P999)
 	fmt.Println("└──────────────────────────────────────────────────────────────────────────────┘")
 
 	// RING BUFFER DROPS (ACTUAL PACKET LOSS)
@@ -446,8 +446,8 @@ func (t *Tracker) PrintFinalReport(tokenCount int) {
 	fmt.Println("\n┌──────────────────────────────────────────────────────────────────────────────┐")
 	fmt.Println("│  ⚠️  MISSED TOKENS (Not in Token Master)                                      │")
 	fmt.Println("├──────────────────────────────────────────────────────────────────────────────┤")
-	fmt.Printf(" │    Total Missed:         %-56d│\n", missedCount)
-	fmt.Printf(" │    Unique Tokens:        %-56d│\n", uniqueMissed)
+	fmt.Printf("│    Total Missed:         %-56d│\n", missedCount)
+	fmt.Printf("│    Unique Tokens:        %-56d│\n", uniqueMissed)
 
 	if uniqueMissed > 0 {
 		fmt.Println("├──────────────────────────────────────────────────────────────────────────────┤")
@@ -497,9 +497,9 @@ func (t *Tracker) PrintFinalReport(tokenCount int) {
 	if totalDrops == 0 {
 		fmt.Println("║    Drops:   ✅ ZERO PACKET DROPS (Perfect capture)                           ║")
 	} else if dropRate < 0.01 {
-		fmt.Printf("║    Drops:   ⚠️  MINIMAL - %d drops (%.4f%%)                                    ║\n", totalDrops, dropRate)
+		fmt.Printf("║    Drops:   ⚠️  MINIMAL - %d drops (%.4f%%)                                   ║\n", totalDrops, dropRate)
 	} else {
-		fmt.Printf("║    Drops:   ❌ PACKET LOSS - %d drops (%.2f%%) - increase ring buffer          ║\n", totalDrops, dropRate)
+		fmt.Printf("║    Drops:   ❌ PACKET LOSS - %d drops (%.2f%%) - increase ring buffer         ║\n", totalDrops, dropRate)
 	}
 
 	// Data quality assessment
@@ -508,11 +508,11 @@ func (t *Tracker) PrintFinalReport(tokenCount int) {
 		missedRatio = float64(missedCount) / float64(t.TotalRecords()) * 100
 	}
 	if missedRatio < 1 {
-		fmt.Printf("║    Data:    ✅ EXCELLENT - %.2f%% token miss rate                              ║\n", missedRatio)
+		fmt.Printf("║    Data:    ✨ EXCELLENT - %.2f%% token miss rate                             ║\n", missedRatio)
 	} else if missedRatio < 5 {
-		fmt.Printf("║    Data:    ⚠️  GOOD - %.2f%% token miss rate                                  ║\n", missedRatio)
+		fmt.Printf("║    Data:    ✅  GOOD - %.2f%% token miss rate                                 ║\n", missedRatio)
 	} else {
-		fmt.Printf("║    Data:    ❌ CHECK TOKEN MAP - %.2f%% miss rate                              ║\n", missedRatio)
+		fmt.Printf("║    Data:    ❌ CHECK TOKEN MAP - %.2f%% miss rate                             ║\n", missedRatio)
 	}
 
 	fmt.Println("╚══════════════════════════════════════════════════════════════════════════════╝")

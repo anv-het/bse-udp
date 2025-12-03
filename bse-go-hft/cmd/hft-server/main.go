@@ -289,6 +289,9 @@ func runReceiver(
 	dropTicker := time.NewTicker(1 * time.Second)
 	defer dropTicker.Stop()
 
+	// Idle counter for adaptive sleeping
+	idleCount := 0
+
 	// Process packets from ring buffer
 	for {
 		select {
@@ -304,10 +307,23 @@ func runReceiver(
 
 		data, length, ok := ringBuf.TryPop()
 		if !ok {
-			// Buffer empty, yield CPU
-			runtime.Gosched()
+			// Buffer empty - use adaptive sleeping to reduce CPU usage
+			idleCount++
+			if idleCount < 100 {
+				// First 100 iterations: just yield (low latency)
+				runtime.Gosched()
+			} else if idleCount < 1000 {
+				// Next 900 iterations: micro-sleep (1µs)
+				time.Sleep(1 * time.Microsecond)
+			} else {
+				// After 1000 iterations: longer sleep (100µs)
+				time.Sleep(100 * time.Microsecond)
+			}
 			continue
 		}
+
+		// Reset idle counter when we get data
+		idleCount = 0
 
 		// Measure decode latency
 		decodeStart := time.Now()
