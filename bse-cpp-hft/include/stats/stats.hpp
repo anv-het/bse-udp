@@ -5,6 +5,13 @@
 
 #pragma once
 
+// Prevent Windows min/max macro conflicts
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+
 #include "metrics/latency.hpp"
 #include "utils/time.hpp"
 #include <atomic>
@@ -259,10 +266,10 @@ public:
         std::cout << "├──────────────────────────────────────────────────────────────────────────────────┤\n";
         std::cout << "│    EQ (Equity Cash):     " << std::setw(8) << eq_packets_.load() << " pkts    "
                   << std::setw(8) << eq_records_.load() << " recs    "
-                  << std::setw(8) << eq_quotes_.load() << " quotes   │\n";
+                  << std::setw(8) << eq_quotes_.load() << " quotes          │\n";
         std::cout << "│    FO (F&O Derivatives): " << std::setw(8) << fo_packets_.load() << " pkts    "
                   << std::setw(8) << fo_records_.load() << " recs    "
-                  << std::setw(8) << fo_quotes_.load() << " quotes   │\n";
+                  << std::setw(8) << fo_quotes_.load() << " quotes       │\n";
         std::cout << "├──────────────────────────────────────────────────────────────────────────────────┤\n";
         std::cout << "│    TOTAL:                " << std::setw(8) << total_packets() << " pkts    "
                   << std::setw(8) << total_records() << " recs    "
@@ -319,12 +326,12 @@ public:
         std::cout << "│  📄 OUTPUT FILES                                                                 │\n";
         std::cout << "├──────────────────────────────────────────────────────────────────────────────────┤\n";
         if (!eq_file_path_.empty()) {
-            std::cout << "│    EQ CSV:              " << std::setw(56) << std::left << get_filename(eq_file_path_) << "│\n";
-            std::cout << "│    EQ Rows:             " << std::setw(56) << std::left << eq_quotes_.load() << "│\n";
+            std::cout << "│    EQ CSV:              " << std::setw(56) << std::left << get_filename(eq_file_path_) << " │\n";
+            std::cout << "│    EQ Rows:             " << std::setw(56) << std::left << eq_quotes_.load() << " │\n";
         }
         if (!fo_file_path_.empty()) {
-            std::cout << "│    FO CSV:              " << std::setw(56) << std::left << get_filename(fo_file_path_) << "│\n";
-            std::cout << "│    FO Rows:             " << std::setw(56) << std::left << fo_quotes_.load() << "│\n";
+            std::cout << "│    FO CSV:              " << std::setw(56) << std::left << get_filename(fo_file_path_) << " │\n";
+            std::cout << "│    FO Rows:             " << std::setw(56) << std::left << fo_quotes_.load() << " │\n";
         }
         std::cout << "└──────────────────────────────────────────────────────────────────────────────────┘\n";
         
@@ -346,26 +353,26 @@ public:
         std::cout << std::fixed << std::setprecision(2);
         std::cout << "│    Min            " << std::setw(8) << decode_s.min << " µs    " 
                   << std::setw(8) << save_s.min << " µs    " 
-                  << std::setw(8) << process_s.min << " µs                  │\n";
+                  << std::setw(8) << process_s.min << " µs                       │\n";
         std::cout << "│    Avg            " << std::setw(8) << decode_s.avg << " µs    " 
                   << std::setw(8) << save_s.avg << " µs    " 
-                  << std::setw(8) << process_s.avg << " µs                  │\n";
+                  << std::setw(8) << process_s.avg << " µs                      │\n";
         std::cout << "│    Max            " << std::setw(8) << decode_s.max << " µs    " 
                   << std::setw(8) << save_s.max << " µs    " 
-                  << std::setw(8) << process_s.max << " µs                  │\n";
+                  << std::setw(8) << process_s.max << " µs                      │\n";
         std::cout << "│    ─────────────────────────────────────────────────────────                     │\n";
         std::cout << "│    P50            " << std::setw(8) << decode_p.p50 << " µs    " 
                   << std::setw(8) << save_p.p50 << " µs    " 
-                  << std::setw(8) << process_p.p50 << " µs                  │\n";
+                  << std::setw(8) << process_p.p50 << " µs                      │\n";
         std::cout << "│    P90            " << std::setw(8) << decode_p.p90 << " µs    " 
                   << std::setw(8) << save_p.p90 << " µs    " 
-                  << std::setw(8) << process_p.p90 << " µs                  │\n";
+                  << std::setw(8) << process_p.p90 << " µs                      │\n";
         std::cout << "│    P99            " << std::setw(8) << decode_p.p99 << " µs    " 
                   << std::setw(8) << save_p.p99 << " µs    " 
-                  << std::setw(8) << process_p.p99 << " µs                  │\n";
+                  << std::setw(8) << process_p.p99 << " µs                      │\n";
         std::cout << "│    P99.9          " << std::setw(8) << decode_p.p999 << " µs    " 
                   << std::setw(8) << save_p.p999 << " µs    " 
-                  << std::setw(8) << process_p.p999 << " µs                  │\n";
+                  << std::setw(8) << process_p.p999 << " µs                     │\n";
         std::cout << "└──────────────────────────────────────────────────────────────────────────────────┘\n";
         
         // Ring Buffer Drops
@@ -413,7 +420,7 @@ public:
             for (const auto& pair : top_missed) {
                 std::cout << "│      " << std::setw(2) << i++ << ". Token " 
                           << std::setw(12) << std::left << pair.token << " → " 
-                          << std::setw(3) << pair.count << " occurrences                                │\n";
+                          << std::setw(3) << pair.count << " occurrences                                   │\n";
             }
         }
         std::cout << "└──────────────────────────────────────────────────────────────────────────────────┘\n";
@@ -435,10 +442,10 @@ public:
         SYSTEM_INFO sysinfo;
         GetSystemInfo(&sysinfo);
         std::cout << "│    CPU Cores:            " << std::setw(56) << std::left 
-                  << sysinfo.dwNumberOfProcessors << "    │\n";
+                  << sysinfo.dwNumberOfProcessors << " │\n";
 #endif
-        
-        std::cout << "│    Threads:              " << std::setw(56) << std::left << "4 (main + 2 recv + 1 csv)    │\n";
+
+        std::cout << "│    Threads:              " << std::setw(56) << std::left << "4 (main + 2 recv + 1 csv) │\n";
         std::cout << "└──────────────────────────────────────────────────────────────────────────────────┘\n";
         
         // HFT Assessment
@@ -448,15 +455,15 @@ public:
         
         // Performance rating
         if (process_p.p99 < 50) {
-            std::cout << "║    Status:  ✨ ULTRA HFT - P99 < 50µs (Professional Trading Grade)               ║\n";
+            std::cout << "║    Status:  ✨ ULTRA HFT - P99 < 50µs (Professional Trading Grade)              ║\n";
         } else if (process_p.p99 < 100) {
-            std::cout << "║    Status:  ✅ EXCELLENT - P99 < 100µs (HFT Grade)                                ║\n";
+            std::cout << "║    Status:  ✅ EXCELLENT - P99 < 100µs (HFT Grade)                               ║\n";
         } else if (process_p.p99 < 500) {
-            std::cout << "║    Status:  ✅ GOOD - P99 < 500µs (Low Latency Trading)                           ║\n";
+            std::cout << "║    Status:  ✅ GOOD - P99 < 500µs (Low Latency Trading)                          ║\n";
         } else if (process_p.p99 < 1000) {
-            std::cout << "║    Status:  ⚠️  ACCEPTABLE - P99 < 1ms (Algo Trading)                             ║\n";
+            std::cout << "║    Status:  ⚠️  ACCEPTABLE - P99 < 1ms (Algo Trading)                            ║\n";
         } else {
-            std::cout << "║    Status:  ❌ NEEDS OPTIMIZATION - P99 >= 1ms                                    ║\n";
+            std::cout << "║    Status:  ❌ NEEDS OPTIMIZATION - P99 >= 1ms                                   ║\n";
         }
         
         // Packet Loss
@@ -476,13 +483,13 @@ public:
         
         if (missed_ratio < 1) {
             std::cout << "║    Data:    ✨ EXCELLENT - " << std::fixed << std::setprecision(2) 
-                      << missed_ratio << "% token miss rate                                     ║\n";
+                      << missed_ratio << "% token miss rate                                    ║\n";
         } else if (missed_ratio < 5) {
             std::cout << "║    Data:    ✅ GOOD - " << std::fixed << std::setprecision(2) 
-                      << missed_ratio << "% token miss rate                                          ║\n";
+                      << missed_ratio << "% token miss rate                                         ║\n";
         } else {
             std::cout << "║    Data:    ❌ CHECK TOKEN MAP - " << std::fixed << std::setprecision(2) 
-                      << missed_ratio << "% miss rate                                  ║\n";
+                      << missed_ratio << "% miss rate                                 ║\n";
         }
         
         std::cout << "╚══════════════════════════════════════════════════════════════════════════════════╝\n";

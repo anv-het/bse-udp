@@ -5,6 +5,13 @@
 
 #pragma once
 
+// Prevent Windows min/max macro conflicts
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+
 #include <atomic>
 #include <vector>
 #include <algorithm>
@@ -101,11 +108,16 @@ public:
     LatencyStats get_stats() const {
         LatencyStats s;
         s.count = count_.load();
-        s.min = min_.load();
-        s.max = max_.load();
         
         if (s.count > 0) {
+            s.min = min_.load();
+            s.max = max_.load();
             s.avg = static_cast<double>(sum_.load()) / 1000.0 / s.count;
+        } else {
+            // No samples - return zeros instead of sentinel values
+            s.min = 0.0;
+            s.max = 0.0;
+            s.avg = 0.0;
         }
         
         return s;

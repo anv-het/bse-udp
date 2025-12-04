@@ -3,6 +3,13 @@
  * C++17 High-Frequency Trading
  */
 
+// Prevent Windows min/max macro conflicts
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+
 #include <iostream>
 #include <iomanip>
 #include <string>
@@ -28,6 +35,7 @@
 #include "saver/csv_writer.hpp"
 #include "domain/quote.hpp"
 #include "domain/contract.hpp"
+#include "stats/stats.hpp"
 #include "utils/time.hpp"
 
 using namespace std::chrono;
@@ -140,6 +148,9 @@ private:
     int64_t sum_ = 0, min_ = INT64_MAX, max_ = 0;
     std::mt19937_64 rng_{std::random_device{}()};
 };
+
+// Global comprehensive stats tracker
+stats::Tracker g_stats;
 
 struct Tracker {
     std::string feed_name;
@@ -389,22 +400,38 @@ private:
             int64_t now = utils::now_ns();
             quotes.clear();
             int decoded = decoder_.decode_packet(buffer, length, quotes, segment_);
+            
+            // Update global stats tracker
+            g_stats.record_packet(segment_, length, decoded);
+            
             if (decoded > 0) {
                 tracker_.records += decoded;
                 for (const auto& quote : quotes) {
                     if (token_map_.contains(quote.token)) {
                         tracker_.quotes++;
-                        tracker_.latency.record(utils::now_ns() - now);
+                        int64_t latency_ns = utils::now_ns() - now;
+                        tracker_.latency.record(latency_ns);
+                        
+                        // Record in global stats
+                        g_stats.record_quote(segment_);
+                        g_stats.record_decode_latency(latency_ns);
+                        g_stats.record_process_latency(latency_ns);
+                        
                         // Save quote to CSV
                         csv_writer_.save(quote);
                     } else {
                         tracker_.record_missed_token(quote.token);
+                        g_stats.track_missed_token(quote.token);
                     }
                 }
             } else {
                 tracker_.invalid_packets++;
             }
         }
+        
+        // Update ring drops and CSV stats in global tracker
+        g_stats.record_ring_drops(segment_, tracker_.drops.load());
+        g_stats.record_csv_writes(segment_, csv_writer_.count());
     }
     
     const config::MulticastConfig& mc_config_;
@@ -426,6 +453,8 @@ int main(int argc, char* argv[]) {
     
 #ifdef _WIN32
     SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
+    // Enable UTF-8 console output for Unicode box-drawing characters
+    SetConsoleOutputCP(65001);  // UTF-8 code page
 #else
     std::signal(SIGINT, [](int) { g_running.store(false); });
 #endif
@@ -500,29 +529,22 @@ int main(int argc, char* argv[]) {
     if (eq_feed) {
         eq_csv_file = eq_feed->csv_file();
         eq_csv_count = eq_feed->csv_count();
+        g_stats.set_output_file("EQ", eq_csv_file);
     }
     if (fo_feed) {
         fo_csv_file = fo_feed->csv_file();
         fo_csv_count = fo_feed->csv_count();
+        g_stats.set_output_file("FO", fo_csv_file);
     }
     
     if (eq_feed) eq_feed->stop();
     if (fo_feed) fo_feed->stop();
     
+    // Print quick summary first
     print_final_report(eq_tracker, fo_tracker, eq_enabled, fo_enabled);
     
-    // Print CSV save info
-    std::cout << "CSV Files Saved:\n";
-    if (eq_enabled && eq_csv_count > 0) {
-        std::cout << "  EQ: " << eq_csv_file << " (" << format_number(eq_csv_count) << " records)\n";
-    }
-    if (fo_enabled && fo_csv_count > 0) {
-        std::cout << "  FO: " << fo_csv_file << " (" << format_number(fo_csv_count) << " records)\n";
-    }
-    if (eq_csv_count == 0 && fo_csv_count == 0) {
-        std::cout << "  (No records saved)\n";
-    }
-    std::cout << "\n";
+    // Now print the comprehensive beautiful report
+    g_stats.print_final_report(token_map.size());
     
     return 0;
 }
