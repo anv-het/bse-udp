@@ -266,14 +266,14 @@ public:
         std::cout << "├──────────────────────────────────────────────────────────────────────────────────┤\n";
         std::cout << "│    EQ (Equity Cash):     " << std::setw(8) << eq_packets_.load() << " pkts    "
                   << std::setw(8) << eq_records_.load() << " recs    "
-                  << std::setw(8) << eq_quotes_.load() << " quotes          │\n";
+                  << std::setw(8) << eq_quotes_.load() << " quotes       │\n";
         std::cout << "│    FO (F&O Derivatives): " << std::setw(8) << fo_packets_.load() << " pkts    "
                   << std::setw(8) << fo_records_.load() << " recs    "
-                  << std::setw(8) << fo_quotes_.load() << " quotes       │\n";
+                  << std::setw(8) << fo_quotes_.load() << " quotes    │\n";
         std::cout << "├──────────────────────────────────────────────────────────────────────────────────┤\n";
         std::cout << "│    TOTAL:                " << std::setw(8) << total_packets() << " pkts    "
                   << std::setw(8) << total_records() << " recs    "
-                  << std::setw(8) << total_quotes() << " quotes   │\n";
+                  << std::setw(8) << total_quotes() << " quotes          │\n";
         std::cout << "└──────────────────────────────────────────────────────────────────────────────────┘\n";
         
         // Throughput
@@ -288,16 +288,16 @@ public:
             
             std::cout << "│    Packets/sec:          " << std::setw(56) << std::fixed << std::setprecision(2) << pps << "│\n";
             std::cout << "│    Records/sec:          " << std::setw(56) << std::fixed << std::setprecision(2) << rps << "│\n";
-            std::cout << "│    Data Rate:            " << std::setw(52) << std::fixed << std::setprecision(3) << mbps << " MB/s│\n";
+            std::cout << "│    Data Rate:            " << std::setw(52) << std::fixed << std::setprecision(3) << mbps << "MB/s│\n";
             std::cout << "├──────────────────────────────────────────────────────────────────────────────────┤\n";
             
             double ms_per_pkt = elapsed * 1000.0 / total_packets();
             double us_per_rec = elapsed * 1000000.0 / total_records();
             double ns_per_rec = elapsed * 1000000000.0 / total_records();
             
-            std::cout << "│    Avg Time/Packet:      " << std::setw(52) << std::fixed << std::setprecision(4) << ms_per_pkt << " ms│\n";
-            std::cout << "│    Avg Time/Record:      " << std::setw(52) << std::fixed << std::setprecision(2) << us_per_rec << " µs│\n";
-            std::cout << "│    Avg Time/Record:      " << std::setw(52) << std::fixed << std::setprecision(0) << ns_per_rec << " ns│\n";
+            std::cout << "│    Avg Time/Packet:      " << std::setw(52) << std::fixed << std::setprecision(4) << ms_per_pkt << " ms │\n";
+            std::cout << "│    Avg Time/Record:      " << std::setw(52) << std::fixed << std::setprecision(2) << us_per_rec << " µs │\n";
+            std::cout << "│    Avg Time/Record:      " << std::setw(52) << std::fixed << std::setprecision(0) << ns_per_rec << " ns │\n";
         }
         std::cout << "└──────────────────────────────────────────────────────────────────────────────────┘\n";
         
@@ -353,7 +353,7 @@ public:
         std::cout << std::fixed << std::setprecision(2);
         std::cout << "│    Min            " << std::setw(8) << decode_s.min << " µs    " 
                   << std::setw(8) << save_s.min << " µs    " 
-                  << std::setw(8) << process_s.min << " µs                       │\n";
+                  << std::setw(8) << process_s.min << " µs                      │\n";
         std::cout << "│    Avg            " << std::setw(8) << decode_s.avg << " µs    " 
                   << std::setw(8) << save_s.avg << " µs    " 
                   << std::setw(8) << process_s.avg << " µs                      │\n";
@@ -372,7 +372,7 @@ public:
                   << std::setw(8) << process_p.p99 << " µs                      │\n";
         std::cout << "│    P99.9          " << std::setw(8) << decode_p.p999 << " µs    " 
                   << std::setw(8) << save_p.p999 << " µs    " 
-                  << std::setw(8) << process_p.p999 << " µs                     │\n";
+                  << std::setw(8) << process_p.p999 << " µs                      │\n";
         std::cout << "└──────────────────────────────────────────────────────────────────────────────────┘\n";
         
         // Ring Buffer Drops
@@ -442,10 +442,10 @@ public:
         SYSTEM_INFO sysinfo;
         GetSystemInfo(&sysinfo);
         std::cout << "│    CPU Cores:            " << std::setw(56) << std::left 
-                  << sysinfo.dwNumberOfProcessors << " │\n";
+                  << sysinfo.dwNumberOfProcessors << "│\n";
 #endif
 
-        std::cout << "│    Threads:              " << std::setw(56) << std::left << "4 (main + 2 recv + 1 csv) │\n";
+        std::cout << "│    Threads:              " << std::setw(56) << std::left << "4 (main + 2 recv + 1 csv) │ , \n";
         std::cout << "└──────────────────────────────────────────────────────────────────────────────────┘\n";
         
         // HFT Assessment
@@ -455,7 +455,7 @@ public:
         
         // Performance rating
         if (process_p.p99 < 50) {
-            std::cout << "║    Status:  ✨ ULTRA HFT - P99 < 50µs (Professional Trading Grade)              ║\n";
+            std::cout << "║    Status:  ✨ ULTRA HFT - P99 < 50µs (Professional Trading Grade)               ║\n";
         } else if (process_p.p99 < 100) {
             std::cout << "║    Status:  ✅ EXCELLENT - P99 < 100µs (HFT Grade)                               ║\n";
         } else if (process_p.p99 < 500) {
@@ -483,7 +483,7 @@ public:
         
         if (missed_ratio < 1) {
             std::cout << "║    Data:    ✨ EXCELLENT - " << std::fixed << std::setprecision(2) 
-                      << missed_ratio << "% token miss rate                                    ║\n";
+                      << missed_ratio << "% token miss rate                                 ║\n";
         } else if (missed_ratio < 5) {
             std::cout << "║    Data:    ✅ GOOD - " << std::fixed << std::setprecision(2) 
                       << missed_ratio << "% token miss rate                                         ║\n";
