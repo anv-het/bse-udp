@@ -1,0 +1,70 @@
+﻿
+class LatencyTracker {
+public:
+    static constexpr size_t RESERVOIR_SIZE = 10000;
+    
+    void record(int64_t latency_ns) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        count_++;
+        sum_ += latency_ns;
+        if (latency_ns < min_) min_ = latency_ns;
+        if (latency_ns > max_) max_ = latency_ns;
+        if (reservoir_.size() < RESERVOIR_SIZE) {
+            reservoir_.push_back(latency_ns);
+        } else {
+            std::uniform_int_distribution<size_t> dist(0, count_ - 1);
+            size_t j = dist(rng_);
+            if (j < RESERVOIR_SIZE) reservoir_[j] = latency_ns;
+        }
+    }
+    
+    struct Stats {
+        int64_t count = 0;
+        double mean_us = 0, min_us = 0, max_us = 0;
+        double p50_us = 0, p90_us = 0, p99_us = 0, p999_us = 0;
+    };
+    
+    Stats get_stats() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        Stats s;
+        s.count = count_;
+        if (count_ == 0) return s;
+        s.mean_us = (sum_ / (double)count_) / 1000.0;
+        s.min_us = min_ / 1000.0;
+        s.max_us = max_ / 1000.0;
+        if (!reservoir_.empty()) {
+            std::vector<int64_t> sorted = reservoir_;
+            std::sort(sorted.begin(), sorted.end());
+            auto pct = [&](double p) { return sorted[(size_t)(p * (sorted.size() - 1))] / 1000.0; };
+            s.p50_us = pct(0.50); s.p90_us = pct(0.90);
+            s.p99_us = pct(0.99); s.p999_us = pct(0.999);
+        }
+        return s;
+    }
+private:
+    std::mutex mutex_;
+    std::vector<int64_t> reservoir_;
+    size_t count_ = 0;
+    int64_t sum_ = 0, min_ = INT64_MAX, max_ = 0;
+    std::mt19937_64 rng_{std::random_device{}()};
+};
+
+struct Tracker {
+    std::string feed_name;
+    std::atomic<uint64_t> packets{0}, records{0}, quotes{0};
+    std::atomic<uint64_t> drops{0}, bytes{0}, missed_tokens{0}, invalid_packets{0};
+    LatencyTracker latency;
+    system_clock::time_point start_time;
+    std::mutex missed_mutex;
+    std::map<uint32_t, uint64_t> missed_token_counts;
+    
+    Tracker(const std::string& name = "") : feed_name(name) { start_time = system_clock::now(); }
+    void record_missed_token(uint32_t token) {
+        missed_tokens++;
+        std::lock_guard<std::mutex> lock(missed_mutex);
+        missed_token_counts[token]++;
+    }
+    double elapsed_seconds() const {
+        return duration_cast<duration<double>>(system_clock::now() - start_time).count();
+    }
+};

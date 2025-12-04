@@ -1,0 +1,89 @@
+﻿/**
+ * BSE HFT Server - Ultra-Low Latency Multicast Receiver
+ */
+#include <iostream>
+#include <iomanip>
+#include <string>
+#include <sstream>
+#include <thread>
+#include <atomic>
+#include <chrono>
+#include <csignal>
+#include <ctime>
+#include <vector>
+#include <map>
+#include <mutex>
+#include <algorithm>
+#include <random>
+#include <cmath>
+#include <memory>
+
+#include "config/config.hpp"
+#include "receiver/multicast.hpp"
+#include "decoder/decoder.hpp"
+#include "tokens/token_manager.hpp"
+#include "buffer/ring_buffer.hpp"
+#include "saver/csv_writer.hpp"
+#include "domain/quote.hpp"
+#include "domain/contract.hpp"
+#include "utils/time.hpp"
+
+using namespace std::chrono;
+using namespace bse;
+
+std::atomic<bool> g_running{true};
+
+#ifdef _WIN32
+BOOL WINAPI console_ctrl_handler(DWORD ctrl_type) {
+    if (ctrl_type == CTRL_C_EVENT || ctrl_type == CTRL_BREAK_EVENT) {
+        g_running.store(false);
+        return TRUE;
+    }
+    return FALSE;
+}
+#endif
+
+struct CommandLineArgs {
+    std::string config_path = "config.json";
+    int duration_seconds = 0;
+    bool eq_only = false;
+    bool fo_only = false;
+    bool help = false;
+    
+    static int parse_duration(const std::string& s) {
+        if (s.empty()) return 0;
+        size_t pos = 0;
+        int value = std::stoi(s, &pos);
+        if (pos < s.length()) {
+            char unit = s[pos];
+            switch (unit) {
+                case 's': return value;
+                case 'm': return value * 60;
+                case 'h': return value * 3600;
+            }
+        }
+        return value;
+    }
+    
+    static CommandLineArgs parse(int argc, char* argv[]) {
+        CommandLineArgs args;
+        for (int i = 1; i < argc; i++) {
+            std::string arg = argv[i];
+            if (arg == "-help" || arg == "--help" || arg == "-h") args.help = true;
+            else if (arg == "-config" && i + 1 < argc) args.config_path = argv[++i];
+            else if (arg == "-duration" && i + 1 < argc) args.duration_seconds = parse_duration(argv[++i]);
+            else if (arg == "-eq-only") args.eq_only = true;
+            else if (arg == "-fo-only") args.fo_only = true;
+        }
+        return args;
+    }
+    
+    static void print_usage(const char* prog) {
+        std::cout << "Usage: " << prog << " [options]\n"
+                  << "  -config <path>   Config file (default: config.json)\n"
+                  << "  -duration <time> Run duration (e.g., 30s, 5m, 1h)\n"
+                  << "  -eq-only         Equity feed only\n"
+                  << "  -fo-only         F&O feed only\n"
+                  << "  -help            Show this help\n";
+    }
+};
