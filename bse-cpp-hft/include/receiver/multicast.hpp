@@ -44,8 +44,10 @@ struct ReceiverConfig {
     int port = 26001;
     int buffer_size = 2048;
     int socket_rcv_buf = 32 * 1024 * 1024;  // 32MB
-    int read_timeout_ms = 50;
+    int read_timeout_ms = 50;                // Timeout for responsive shutdown
 };
+
+using StopCheck = std::function<bool()>;
 
 /**
  * @brief Packet handler callback
@@ -140,14 +142,21 @@ public:
     
     /**
      * @brief Start receive loop (blocking)
+     * @param external_stop Optional external stop check function for responsive shutdown
      */
-    void receive_loop() {
+    void receive_loop(StopCheck external_stop = nullptr) {
         if (socket_ == INVALID_SOCK) return;
         
         running_ = true;
         uint8_t buffer[2048];
         
         while (running_) {
+            // Check external stop condition for responsive shutdown
+            if (external_stop && external_stop()) {
+                running_ = false;
+                break;
+            }
+            
             int n = recv(socket_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
             
             if (n > 0) {
@@ -161,14 +170,26 @@ public:
                 // Connection closed
                 break;
             } else {
-                // Error or timeout
+                // Error or timeout - check stop condition on timeout
 #ifdef _WIN32
                 int err = WSAGetLastError();
-                if (err != WSAETIMEDOUT) {
+                if (err == WSAETIMEDOUT) {
+                    // Timeout - check for shutdown
+                    if (external_stop && external_stop()) {
+                        running_ = false;
+                        break;
+                    }
+                } else {
                     errors_++;
                 }
 #else
-                if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    // Timeout - check for shutdown
+                    if (external_stop && external_stop()) {
+                        running_ = false;
+                        break;
+                    }
+                } else {
                     errors_++;
                 }
 #endif

@@ -141,13 +141,64 @@ g++ -std=c++17 -O3 -march=native -o bin/bse-hft-cpp.exe src/main.cpp -Iinclude -
 ### Test Tools
 
 ```cmd
-# Build test tools
-cl.exe /EHsc /std:c++17 /O2 /I include tests\benchmark.cpp /Fe:bin\benchmark.exe ws2_32.lib
-cl.exe /EHsc /std:c++17 /O2 /I include tests\test_live_sensex.cpp /Fe:bin\test_live_sensex.exe ws2_32.lib
-cl.exe /EHsc /std:c++17 /O2 /I include tests\test_live_token.cpp /Fe:bin\test_live_token.exe ws2_32.lib
+# Build test tools (from bse-cpp-hft directory with VS environment set)
+cl.exe /EHsc /std:c++17 /O2 /I include tests\benchmark.cpp ws2_32.lib /Fe:bin\benchmark.exe
+cl.exe /EHsc /std:c++17 /O2 /I include tests\test_live_sensex.cpp ws2_32.lib /Fe:bin\test_live_sensex.exe
+cl.exe /EHsc /std:c++17 /O2 /I include tests\test_live_token.cpp ws2_32.lib /Fe:bin\test_live_token.exe
 
 # Run benchmark
 .\bin\benchmark.exe -port 26002 -duration 30
+
+# Monitor SENSEX contracts
+.\bin\test_live_sensex.exe -duration 60
+
+# Monitor specific token with order book
+.\bin\test_live_token.exe -token 1102290 -port 26002 -ticks 50
+```
+
+### Output Example (test_live_token)
+
+```
+📂 Loading token maps...
+   ✅ Loaded 33840 F&O contracts + 4757 EQ scripts = 38597 total
+================================================================================
+BSE C++ HFT - LIVE TOKEN MONITOR
+================================================================================
+Token: 1102290
+Port:  26002 (F&O - Derivatives)
+
+📊 Token 1102290 → SENSEX25DECFUT
+   Symbol:     SENSEX
+   Contract:   SENSEX25DECFUT
+   Expiry:     24-DEC-2025
+
+💾 CSV File: data\processed_csv\20251205_1102290_SENSEX25DECFUT_ticks.csv
+
+📡 Connecting to 239.1.2.5:26002...
+   ✅ Connected!
+
+════════════════════════════════════════════════════════════════════════════════
+  TICK #1       │  11:21:51.002  │  Token: 1102290  │  SENSEX25DECFUT
+════════════════════════════════════════════════════════════════════════════════
+
+  💰 LTP: ₹86055.15  NEW
+  📈 Day Change: +308.75 (+0.36%) (from Prev Close: ₹85746.40)
+  ────────────────────────────────────────────────────────────────────────
+  Open: ₹85726.30  │  High: ₹86078.15  │  Low: ₹85624.15  │  Prev: ₹85746.40
+  ATP:  ₹85866.77  │  Volume: 12560  │  Turnover: ₹10784L  │  Seq: 1449400910
+
+  📚 ORDER BOOK
+  ────────────────────────────────────────────────────────────────────────
+  BID                                │ ASK
+         Price       Qty    Ord │        Price       Qty    Ord
+  ────────────────────────────────────────────────────────────────────────
+  ₹  86045.90        20      1 │ ₹  86067.70        20      1
+  ₹  86045.55        40      2 │ ₹  86067.75        20      1
+  ₹  86044.65       100      1 │ ₹  86070.00       100      1
+  ₹  86044.50        20      1 │ ₹  86078.00        20      1
+  ₹  86043.85        20      1 │ ₹  86081.95        40      1
+  ────────────────────────────────────────────────────────────────────────
+```
 
 # Monitor SENSEX
 .\bin\test_live_sensex.exe -duration 60
@@ -312,14 +363,22 @@ timestamp,token,symbol,symbol_name,expiry,option_type,strike_price,ltp,open,high
 **Solution:** 
 - Place BhavCopy and Contract Master CSV files in `data/tokens/`
 - Files should be named: `BhavCopy_BSE_CM_DDMMYYYY.csv` and `BSE_EQD_CONTRACT_DDMMYYYY.csv`
-- **Note:** Unlike Go version, C++ version requires pre-downloaded files (no HTTP download to avoid WinHTTP dependency)
-- Download files manually from BSE or use Go version's API download
+- **Auto-download:** Token manager will attempt to download from BSE API if files not found
+- **Fallback:** Uses older cached files if download fails (looks back 7 trading days)
+- **Manual download:** Get files from BSE or use Go version's API download
 
 #### 4. High packet drops
 **Solution:**
-- Increase `socket_buffer` in config.json
-- Increase `ring_buffer.size`
+- Increase `socket_buffer` in config.json (default: 32 MB)
+- Increase `ring_buffer.size` (default: 16384 slots)
 - Close other network-intensive applications
+- Check network latency/jitter
+
+#### 5. "test_live_token shows simple output"
+**Solution:**
+- Rebuild the test executable - you may be running old version
+- Check timestamps: `Get-ChildItem bin\test_live_token.exe`
+- Rebuild: `cl /EHsc /std:c++17 /O2 /I include tests\test_live_token.cpp ws2_32.lib /Fe:bin\test_live_token.exe /Fo:bin\`
 
 ### Performance Tips
 
@@ -327,16 +386,17 @@ timestamp,token,symbol,symbol_name,expiry,option_type,strike_price,ltp,open,high
 2. **Disable antivirus** temporarily for benchmarks
 3. **Use wired connection** instead of WiFi
 4. **Close unnecessary applications** to reduce CPU load
+5. **Increase socket buffer** if seeing drops during high volatility
 
 ---
 
 ## Quick Reference
 
 ```cmd
-# Build
+# Build (from Developer Command Prompt or use build_manual.bat)
 build_manual.bat
 
-# Run (default)
+# Run (default - both feeds until Ctrl+C)
 .\bin\bse-hft-cpp.exe
 
 # Run for 60 seconds
@@ -344,8 +404,11 @@ build_manual.bat
 
 # EQ only, 5 minutes
 .\bin\bse-hft-cpp.exe -duration 300 -eq-only
+
+# Live token monitor with order book
+.\bin\test_live_token.exe -token 1102290 -port 26002 -ticks 50
 ```
 
 ---
 
-**Last Updated:** December 4, 2025
+**Last Updated:** December 5, 2025

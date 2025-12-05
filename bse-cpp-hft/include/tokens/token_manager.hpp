@@ -129,6 +129,23 @@ private:
             "2025-11-05",  // Prakash Gurpurab
             "2025-11-26",  // Guru Nanak Jayanti
             "2025-12-25",  // Christmas
+            
+            // BSE holidays for 2026 (tentative - verify with BSE)
+            "2026-01-26",  // Republic Day
+            "2026-03-03",  // Holi
+            "2026-03-20",  // Id-Ul-Fitr (Eid)
+            "2026-03-30",  // Shri Mahavir Jayanti
+            "2026-04-03",  // Good Friday
+            "2026-04-14",  // Dr. Ambedkar Jayanti
+            "2026-05-01",  // Maharashtra Day
+            "2026-05-27",  // Id-Ul-Adha (Bakri Id)
+            "2026-08-15",  // Independence Day / Janmashtami
+            "2026-10-02",  // Gandhi Jayanti
+            "2026-10-09",  // Dussehra
+            "2026-11-09",  // Diwali Laxmi Pujan
+            "2026-11-10",  // Diwali Balipratipada  
+            "2026-11-16",  // Guru Nanak Jayanti
+            "2026-12-25",  // Christmas
         };
     }
     

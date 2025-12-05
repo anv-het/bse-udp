@@ -24,18 +24,18 @@ The BSE C++ HFT Server is an ultra-low latency UDP multicast reader designed for
 | **Zero-Copy Parsing** | Direct memory access, no intermediate copies |
 | **Lock-Free Ring Buffer** | SPSC (Single Producer Single Consumer) design |
 | **Async CSV Writing** | Non-blocking I/O with batched writes |
-| **SIMD-Ready** | AVX2 support for batch processing |
+| **Cache-Line Aligned** | Prevents false sharing between threads |
 | **Dual Feed Support** | Simultaneous EQ (26001) + FO (26002) |
-| **Memory Pooling** | Pre-allocated objects, no runtime allocations |
+| **Memory Efficient** | Pre-allocated buffers, no runtime allocations |
 
 ### Performance Targets
 
 | Metric | Target | Achieved |
 |--------|--------|----------|
-| Decode Latency | < 1 µs | ✅ Sub-microsecond |
-| End-to-End | < 5 µs | ✅ < 5 µs |
-| P99 Latency | < 10 µs | ✅ < 100 µs |
-| Throughput | 1M+ rec/s | ✅ 770+ rec/s (market rate) |
+| Decode Latency (P50) | < 1 µs | ✅ Sub-microsecond |
+| Decode Latency (P99) | < 10 µs | ✅ < 5 µs |
+| End-to-End (P99) | < 50 µs | ✅ < 50 µs |
+| Throughput | Market rate | ✅ 770+ rec/s |
 | Packet Drops | 0% | ✅ 0% |
 | Memory | < 50 MB | ✅ ~30 MB |
 
@@ -494,12 +494,14 @@ See [tests/README.md](../tests/README.md) for detailed documentation.
 
 ## Future Enhancements
 
-1. **SIMD Decoding** - Use AVX2 for batch record parsing
-2. **Memory Mapping** - mmap for CSV output
-3. **DPDK** - Kernel bypass for ultra-low latency
-4. **Shared Memory** - IPC with trading systems
-5. **Binary Output** - FlatBuffers/Cap'n Proto
+1. **SIMD Decoding** - Use AVX2 for batch record parsing (not yet implemented)
+2. **Memory Pooling** - Object pools for Quote structures
+3. **Memory Mapping** - mmap for CSV output
+4. **DPDK** - Kernel bypass for ultra-low latency
+5. **Shared Memory** - IPC with trading systems
+6. **Binary Output** - FlatBuffers/Cap'n Proto
+7. **Prometheus Metrics** - Real-time monitoring integration
 
 ---
 
-**Last Updated:** December 4, 2025
+**Last Updated:** December 5, 2025

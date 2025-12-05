@@ -99,55 +99,8 @@ struct CommandLineArgs {
     }
 };
 
-class LatencyTracker {
-public:
-    static constexpr size_t RESERVOIR_SIZE = 10000;
-    
-    void record(int64_t latency_ns) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        count_++;
-        sum_ += latency_ns;
-        if (latency_ns < min_) min_ = latency_ns;
-        if (latency_ns > max_) max_ = latency_ns;
-        if (reservoir_.size() < RESERVOIR_SIZE) {
-            reservoir_.push_back(latency_ns);
-        } else {
-            std::uniform_int_distribution<size_t> dist(0, count_ - 1);
-            size_t j = dist(rng_);
-            if (j < RESERVOIR_SIZE) reservoir_[j] = latency_ns;
-        }
-    }
-    
-    struct Stats {
-        int64_t count = 0;
-        double mean_us = 0, min_us = 0, max_us = 0;
-        double p50_us = 0, p90_us = 0, p99_us = 0, p999_us = 0;
-    };
-    
-    Stats get_stats() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        Stats s;
-        s.count = count_;
-        if (count_ == 0) return s;
-        s.mean_us = (sum_ / (double)count_) / 1000.0;
-        s.min_us = min_ / 1000.0;
-        s.max_us = max_ / 1000.0;
-        if (!reservoir_.empty()) {
-            std::vector<int64_t> sorted = reservoir_;
-            std::sort(sorted.begin(), sorted.end());
-            auto pct = [&](double p) { return sorted[(size_t)(p * (sorted.size() - 1))] / 1000.0; };
-            s.p50_us = pct(0.50); s.p90_us = pct(0.90);
-            s.p99_us = pct(0.99); s.p999_us = pct(0.999);
-        }
-        return s;
-    }
-private:
-    std::mutex mutex_;
-    std::vector<int64_t> reservoir_;
-    size_t count_ = 0;
-    int64_t sum_ = 0, min_ = INT64_MAX, max_ = 0;
-    std::mt19937_64 rng_{std::random_device{}()};
-};
+// Use the optimized LatencyTracker from metrics namespace
+using LatencyTracker = metrics::LatencyTracker;
 
 // Global comprehensive stats tracker
 stats::Tracker g_stats;
@@ -156,7 +109,7 @@ struct Tracker {
     std::string feed_name;
     std::atomic<uint64_t> packets{0}, records{0}, quotes{0};
     std::atomic<uint64_t> drops{0}, bytes{0}, missed_tokens{0}, invalid_packets{0};
-    LatencyTracker latency;
+    LatencyTracker latency;  // Now uses bse::metrics::LatencyTracker
     system_clock::time_point start_time;
     std::mutex missed_mutex;
     std::map<uint32_t, uint64_t> missed_token_counts;
@@ -216,7 +169,8 @@ void print_banner() {
 
 void print_feed_stats(const std::string& name, Tracker& tracker) {
     double elapsed = tracker.elapsed_seconds();
-    auto lat = tracker.latency.get_stats();
+    auto lat_stats = tracker.latency.get_stats();
+    auto lat_pct = tracker.latency.get_percentiles();
     double pkt_rate = elapsed > 0 ? tracker.packets / elapsed : 0;
     double rec_rate = elapsed > 0 ? tracker.records / elapsed : 0;
     double byte_rate = elapsed > 0 ? tracker.bytes / elapsed : 0;
@@ -232,11 +186,11 @@ void print_feed_stats(const std::string& name, Tracker& tracker) {
               << "  Missed: " << std::setw(10) << format_number(tracker.missed_tokens)
               << "  Invalid: " << std::setw(10) << format_number(tracker.invalid_packets) << " |\n";
     
-    if (lat.count > 0) {
-        std::cout << "|  Latency: Min=" << std::fixed << std::setprecision(1) << lat.min_us
-                  << "us  Mean=" << lat.mean_us << "us  Max=" << lat.max_us << "us" << std::string(25, ' ') << "|\n"
-                  << "|  Percentiles: P50=" << lat.p50_us << "us  P90=" << lat.p90_us
-                  << "us  P99=" << lat.p99_us << "us  P99.9=" << lat.p999_us << "us |\n";
+    if (lat_stats.count > 0) {
+        std::cout << "|  Latency: Min=" << std::fixed << std::setprecision(1) << lat_stats.min
+                  << "us  Mean=" << lat_stats.avg << "us  Max=" << lat_stats.max << "us" << std::string(25, ' ') << "|\n"
+                  << "|  Percentiles: P50=" << lat_pct.p50 << "us  P90=" << lat_pct.p90
+                  << "us  P99=" << lat_pct.p99 << "us  P99.9=" << lat_pct.p999 << "us |\n";
     }
 }
 
@@ -358,8 +312,7 @@ private:
         recv_config.socket_rcv_buf = mc_config_.socket_rcv_buf;
         recv_config.read_timeout_ms = 50;  // Short timeout for responsive shutdown
         
-        // Create receiver with callback - we manage the loop ourselves
-        bool connected = false;
+        // Create receiver with callback
         receiver_ = std::make_unique<receiver::MulticastReceiver>(recv_config, 
             [this](const uint8_t* data, uint32_t length) {
                 if (!ring_buffer_.try_push(data, length)) tracker_.drops++;
@@ -370,19 +323,16 @@ private:
             std::cerr << "[" << segment_ << "] Failed to connect\n";
             return;
         }
-        connected = true;
         std::cout << "[" << segment_ << "] Connected to " << mc_config_.ip << ":" << mc_config_.port << "\n";
         
-        // Let the receiver's internal loop run, but check for shutdown
-        while (running_.load() && g_running.load()) {
-            // Run receive_loop in short bursts - it will exit on timeout
-            receiver_->receive_loop();
-        }
+        // Run receive loop with external stop check for responsive Ctrl+C shutdown
+        // The stop check is evaluated on every timeout (50ms), ensuring quick exit
+        receiver_->receive_loop([this]() { 
+            return !running_.load() || !g_running.load(); 
+        });
         
-        if (connected) {
-            receiver_->stop();
-            receiver_->close();
-        }
+        receiver_->stop();
+        receiver_->close();
     }
     
     void process_loop() {

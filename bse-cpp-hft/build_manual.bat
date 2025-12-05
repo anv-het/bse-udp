@@ -48,9 +48,9 @@ REM Compile with full optimizations for HFT
 cl /nologo /std:c++17 /O2 /Oi /Ot /GL /GF /EHsc /MT ^
    /D_WIN32_WINNT=0x0A00 /DNOMINMAX /DNDEBUG ^
    /I"%~dp0include" ^
-   /Fe"bin\bse-hft-cpp.exe" ^
+   /Fe"bin\bse-hft.exe" ^
    src\main.cpp ^
-   /link /LTCG /OPT:REF /OPT:ICF ws2_32.lib
+   /link /LTCG /OPT:REF /OPT:ICF ws2_32.lib winhttp.lib
 
 if errorlevel 1 (
     echo.
@@ -61,7 +61,7 @@ if errorlevel 1 (
 echo.
 echo [3/3] Build complete!
 echo ============================================
-echo Executable: bin\bse-hft-cpp.exe
+echo Executable: bin\bse-hft.exe
 echo ============================================
 echo.
 dir bin\*.exe
