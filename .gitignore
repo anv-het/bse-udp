@@ -29,7 +29,8 @@ bse_reader.log
 git rm --cached -r __pycache__ *.pyc
 
 */data/
-
+bse-cpp-hft/bin/data/
+bse-go-hft/tests/data/
 */data/
 
 .vscode/

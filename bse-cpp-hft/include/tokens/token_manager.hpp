@@ -49,8 +49,10 @@ public:
         : tokens_dir_(tokens_dir)
         , api_base_url_(api_base_url)
         , max_retries_(3)
-        , retry_delay_seconds_(10)
         , keep_files_(2) {
+        
+        // Incremental retry delays: 5s, 10s, 15s
+        retry_delays_ = {5, 10, 15};
         
         // Create tokens directory if needed
         std::filesystem::create_directories(tokens_dir);
@@ -101,7 +103,7 @@ private:
     std::string tokens_dir_;
     std::string api_base_url_;
     int max_retries_;
-    int retry_delay_seconds_;
+    std::vector<int> retry_delays_;  // Incremental delays: 5s, 10s, 15s
     int keep_files_;
     std::set<std::string> holidays_;  // Format: YYYY-MM-DD
     
@@ -282,9 +284,10 @@ private:
             }
             
             if (retry < max_retries_) {
+                int delay = retry_delays_[static_cast<size_t>(retry - 1)];
                 std::cout << "   ⚠️  Retry " << retry << " failed, waiting " 
-                          << retry_delay_seconds_ << "s...\n";
-                std::this_thread::sleep_for(std::chrono::seconds(retry_delay_seconds_));
+                          << delay << "s before next attempt...\n";
+                std::this_thread::sleep_for(std::chrono::seconds(delay));
             }
         }
         

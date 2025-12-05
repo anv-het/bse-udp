@@ -26,6 +26,8 @@ namespace metrics {
  */
 struct LatencyPercentiles {
     double p50 = 0.0;
+    double p60 = 0.0;
+    double p65 = 0.0;
     double p90 = 0.0;
     double p95 = 0.0;
     double p99 = 0.0;
@@ -94,6 +96,8 @@ public:
         std::sort(sorted.begin(), sorted.end());
         
         p.p50 = sorted[static_cast<size_t>(n * 0.50)];
+        p.p60 = sorted[static_cast<size_t>(n * 0.60)];
+        p.p65 = sorted[static_cast<size_t>(n * 0.65)];
         p.p90 = sorted[static_cast<size_t>(n * 0.90)];
         p.p95 = sorted[static_cast<size_t>(n * 0.95)];
         p.p99 = sorted[std::min(static_cast<size_t>(n * 0.99), n - 1)];

@@ -364,6 +364,12 @@ public:
         std::cout << "│    P50            " << std::setw(8) << decode_p.p50 << " µs    " 
                   << std::setw(8) << save_p.p50 << " µs    " 
                   << std::setw(8) << process_p.p50 << " µs                      │\n";
+        std::cout << "│    P60            " << std::setw(8) << decode_p.p60 << " µs    " 
+                  << std::setw(8) << save_p.p60 << " µs    " 
+                  << std::setw(8) << process_p.p60 << " µs                      │\n";
+        std::cout << "│    P65            " << std::setw(8) << decode_p.p65 << " µs    " 
+                  << std::setw(8) << save_p.p65 << " µs    " 
+                  << std::setw(8) << process_p.p65 << " µs                      │\n";
         std::cout << "│    P90            " << std::setw(8) << decode_p.p90 << " µs    " 
                   << std::setw(8) << save_p.p90 << " µs    " 
                   << std::setw(8) << process_p.p90 << " µs                      │\n";

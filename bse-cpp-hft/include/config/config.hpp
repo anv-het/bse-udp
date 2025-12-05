@@ -63,12 +63,17 @@ struct PerformanceConfig {
  * @brief Complete application configuration
  */
 struct Config {
-    MulticastConfig multicast_cm;
-    MulticastConfig multicast_fo;
+    MulticastConfig multicast_cm;   // Default port 26001
+    MulticastConfig multicast_fo;   // Will be set to 26002 in constructor
     SegmentsConfig segments;
     APIConfig api;
     DataManagementConfig data_management;
     PerformanceConfig performance;
+    
+    Config() {
+        // Ensure F&O uses correct default port
+        multicast_fo.port = 26002;
+    }
     
     /**
      * @brief Load configuration from JSON file
