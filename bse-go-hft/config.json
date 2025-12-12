@@ -4,6 +4,14 @@
     "fo_enabled": true,
     "comment": "Enable/disable Equity Cash (CM) and Derivatives (F&O) feeds"
   },
+  "message_types": {
+    "2011_enabled": true,
+    "2012_enabled": true,
+    "2017_enabled": true,
+    "2020_enabled": true,
+    "2021_enabled": true,
+    "comment": "Enable/disable specific message types: 2011=Critical Indices, 2012=Regular Indices, 2017=Auction/Trade, 2020=Equity Quotes, 2021=Derivatives"
+  },
   "multicast": {
     "ip": "239.1.2.5",
     "port": 26002,

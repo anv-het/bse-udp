@@ -37,6 +37,9 @@ type Config struct {
 	// Segments to enable
 	Segments SegmentsConfig `json:"segments"`
 
+	// Message types to enable
+	MessageTypes MessageTypesConfig `json:"message_types"`
+
 	// Multicast settings
 	MulticastCM MulticastConfig `json:"multicast_cm"`
 	MulticastFO MulticastConfig `json:"multicast_fo"`
@@ -55,6 +58,15 @@ type Config struct {
 type SegmentsConfig struct {
 	CMEnabled bool `json:"cm_enabled"` // Equity Cash (port 26001)
 	FOEnabled bool `json:"fo_enabled"` // Derivatives (port 26002)
+}
+
+// MessageTypesConfig configures which message types to capture
+type MessageTypesConfig struct {
+	Type2011Enabled bool `json:"2011_enabled"` // Critical Indices (1 sec frequency)
+	Type2012Enabled bool `json:"2012_enabled"` // Regular Indices (8 sec frequency)
+	Type2017Enabled bool `json:"2017_enabled"` // Auction Market Picture / Trade Data
+	Type2020Enabled bool `json:"2020_enabled"` // Equity Quotes
+	Type2021Enabled bool `json:"2021_enabled"` // Derivatives Quotes
 }
 
 // MulticastConfig holds multicast settings
@@ -92,6 +104,13 @@ func DefaultConfig() *Config {
 		Segments: SegmentsConfig{
 			CMEnabled: true,
 			FOEnabled: true,
+		},
+		MessageTypes: MessageTypesConfig{
+			Type2011Enabled: true, // Critical indices
+			Type2012Enabled: true, // Regular indices
+			Type2017Enabled: true, // Auction/Trade data
+			Type2020Enabled: true, // Equity quotes
+			Type2021Enabled: true, // Derivatives quotes
 		},
 		MulticastCM: MulticastConfig{
 			IP:           DefaultMulticastIP,

@@ -1,48 +1,92 @@
 # BSE Greeks Calculator (Go)
 
-Standalone Greeks calculator for BSE F&O derivatives. Calculates Delta, Gamma, Theta, Vega, and Rho using Black-Scholes-Merton model.
+Comprehensive Greeks calculator for BSE F&O derivatives with **real-time UDP feed support**. Calculates all 9 Greeks including Implied Volatility using Black-Scholes-Merton model.
 
-## Features
+## 🎯 Key Features
 
-- ✅ **Black-Scholes Greeks**: Accurate calculation for European options
+- ✅ **Live Greeks Calculator**: Real-time calculation from BSE UDP multicast feed
+- ✅ **All 9 Greeks**: Delta, Gamma, Theta, Vega, Rho, Vanna, Vomma, Charm
+- ✅ **Implied Volatility**: Newton-Raphson solver for market IV
 - ✅ **High Performance**: Processes 50,000+ options/second
-- ✅ **CSV Processing**: Read BSE FO quotes, output enhanced CSV with Greeks
+- ✅ **CSV Processing**: Batch processing with enhanced output
 - ✅ **Zero Dependencies**: Uses only Go standard library
-- ✅ **Comprehensive Tests**: Unit tests with benchmarks
+- ✅ **Production Ready**: Thread-safe, low latency (<1ms)
 
-## Quick Start
+## 🚀 Quick Start Options
 
-### 1. Copy Test Data
+### Option 1: Live Real-Time Greeks (NEW! ⭐)
+
+**Monitor live Greeks from BSE UDP feed - no CSV files needed!**
 
 ```powershell
-# Copy sample BSE FO quotes for testing
-Copy-Item "d:\bse\bse-go-hft\data\processed_csv\20251208_FO_quotes.csv" `
-          "d:\bse\bse-greeks-go\data\input\"
+# Step 1: Start BSE HFT Servers (required)
+# Terminal 1: Index Server
+cd d:\bse\bse-go-hft
+.\hft-index-server.exe
+
+# Terminal 2: F&O Server
+cd d:\bse\bse-go-hft
+.\hft-server.exe
+
+# Step 2: Run Live Greeks Calculator
+cd d:\bse\bse-greeks-go
+.\bin\live_greeks_udp.exe
 ```
 
-### 2. Run Tests
+**See**: [Live Greeks Complete Guide](LIVE_GREEKS_COMPLETE.md)
+
+### Option 2: Batch CSV Processing
+
+**Process historical data from CSV files:**
 
 ```powershell
 cd d:\bse\bse-greeks-go
 
-# Test Greeks calculator
-go test -v ./pkg/greeks
-
-# Run benchmarks
-go test -bench=. ./pkg/greeks
+# Process with automatic IV calculation
+go run cmd/calculator_iv/main.go `
+  -fo-file "d:\bse\bse-go-hft\data\processed_csv\20251212_FO_quotes.csv" `
+  -index-file "d:\bse\bse-go-hft\data\processed_csv\20251212_index_regular.csv" `
+  -output "data/output/greeks_iv_20251212.csv"
 ```
 
-### 3. Calculate Greeks
+### Option 3: Live Token Monitor
+
+**Monitor specific tokens with auto-refresh:**
 
 ```powershell
-# Process CSV file
-go run cmd/calculator/main.go `
-  -input data/input/20251208_FO_quotes.csv `
-  -output data/output/greeks_20251208.csv `
-  -sensex 84733 `
-  -bankex 67250 `
-  -rate 0.07 `
-  -vol 0.15
+cd d:\bse\bse-greeks-go
+
+.\bin\live_token_monitor.exe `
+  -fo-file "d:\bse\bse-go-hft\data\processed_csv\20251212_FO_quotes.csv" `
+  -index-file "d:\bse\bse-go-hft\data\processed_csv\20251212_index_regular.csv" `
+  -tokens "1144708,1141880" `
+  -refresh 5
+```
+
+## 📊 What You Get
+
+### Live Greeks Display
+```
+┌─ Token: 1144708 ─ SENSEX 18-Dec-2025 PE 85200 ────────────────────────────────┐
+│ 📊 Market Data                                                                │
+│   LTP:            ₹296.40      Volume:          19780260                    │
+│   Moneyness:      ATM          Intrinsic:     ₹      0.00                    │
+│   Time Value:     ₹296.40      Updated:     2s ago                          │
+│                                                                               │
+│ 💡 Implied Volatility: 18.50% (Calc)                                          │
+│                                                                               │
+│ 📈 Basic Greeks (First Order)                                                 │
+│   Delta:    -0.4617  │  Gamma:    0.000250  │  Theta:    -48.99/day        │
+│   Vega:       41.97  │  Rho:         -6.14                                  │
+│                                                                               │
+│ 🎯 Advanced Greeks (Second Order)                                             │
+│   Vanna:    -1.7518  │  Vomma:        2.09  │  Charm:    7.1284/day        │
+│                                                                               │
+│ 💭 Interpretation:                                                            │
+│   • For every ₹100 SENSEX fall, option gains ₹46                          │
+│   • Time decay: Losing ₹48.99 per day (6 days to expiry)                    │
+│   • If volatility rises 1%, option gains ₹41.97                               │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Project Structure

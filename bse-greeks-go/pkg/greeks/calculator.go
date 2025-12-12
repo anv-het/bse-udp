@@ -5,13 +5,23 @@ import (
 	"time"
 )
 
-// Greeks contains the 5 option Greeks
+// Greeks contains all 9 option Greeks (basic + advanced + IV)
 type Greeks struct {
+	// Basic Greeks (First-order derivatives)
 	Delta float64 `json:"delta"` // Directional risk (0 to 1 for calls, -1 to 0 for puts)
 	Gamma float64 `json:"gamma"` // Delta sensitivity (always positive)
 	Theta float64 `json:"theta"` // Time decay per day (usually negative)
 	Vega  float64 `json:"vega"`  // Volatility sensitivity (always positive)
 	Rho   float64 `json:"rho"`   // Interest rate sensitivity
+
+	// Implied Volatility (Calculated from market price)
+	ImpliedVol  float64 `json:"implied_vol"`  // Market-implied volatility
+	IVEstimated bool    `json:"iv_estimated"` // True if IV calculation failed, using fallback
+
+	// Advanced Greeks (Second-order and cross derivatives)
+	Vanna float64 `json:"vanna"` // ∂²V/∂S∂σ - Delta sensitivity to volatility
+	Vomma float64 `json:"vomma"` // ∂²V/∂σ² - Vega sensitivity to volatility
+	Charm float64 `json:"charm"` // ∂²V/∂S∂t - Delta decay per day
 }
 
 // Calculator handles Greeks calculations
@@ -198,6 +208,70 @@ func IntrinsicValue(optionType string, spotPrice, strikePrice float64) float64 {
 		return math.Max(spotPrice-strikePrice, 0)
 	}
 	return math.Max(strikePrice-spotPrice, 0)
+}
+
+// CalculateWithIV calculates all 9 Greeks including IV from market price
+// This is the main method to use when you have market data
+func (c *Calculator) CalculateWithIV(
+	marketPrice float64,
+	optionType string,
+	spotPrice float64,
+	strikePrice float64,
+	expiryDate time.Time,
+	volume int64, // Used to determine if price is reliable
+) Greeks {
+	// Default IV config
+	ivConfig := DefaultIVConfig()
+
+	// Step 1: Calculate Implied Volatility from market price
+	iv, ivEstimated := c.ImpliedVolatilityWithFallback(
+		marketPrice,
+		optionType,
+		spotPrice,
+		strikePrice,
+		expiryDate,
+		ivConfig,
+		0.15, // 15% fallback volatility
+	)
+
+	// If volume is very low, mark as estimated
+	if volume < 10 {
+		ivEstimated = true
+	}
+
+	// Step 2: Calculate all Greeks using the calculated IV
+	return c.CalculateAllGreeksWithIV(optionType, spotPrice, strikePrice,
+		expiryDate, iv, ivEstimated)
+}
+
+// CalculateAllGreeksWithIV computes all 9 Greeks with pre-calculated IV
+func (c *Calculator) CalculateAllGreeksWithIV(
+	optionType string,
+	spotPrice, strikePrice float64,
+	expiryDate time.Time,
+	iv float64,
+	ivEstimated bool,
+) Greeks {
+	// Calculate basic Greeks
+	basic := c.Calculate(optionType, spotPrice, strikePrice, expiryDate, iv)
+
+	// Calculate advanced Greeks
+	advanced := c.CalculateAdvanced(optionType, spotPrice, strikePrice,
+		expiryDate, iv)
+
+	// Combine into single struct
+	return Greeks{
+		Delta:       basic.Delta,
+		Gamma:       basic.Gamma,
+		Theta:       basic.Theta,
+		Vega:        basic.Vega,
+		Rho:         basic.Rho,
+		ImpliedVol:  iv,
+		IVEstimated: ivEstimated,
+		Vanna:       advanced.Vanna,
+		Vomma:       advanced.Vomma,
+		Charm:       advanced.Charm,
+	}
 }
 
 // TimeValue calculates the time value of an option

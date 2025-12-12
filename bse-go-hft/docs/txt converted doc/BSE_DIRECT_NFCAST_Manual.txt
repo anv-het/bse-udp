@@ -1,0 +1,1749 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+BSE Direct NFCAST Manual
+
+
+
+
+
+
+
+
+
+
+
+
+
+Version 5.0
+
+
+Date: May 28, 2025
+
+
+
+
+Contents
+
+1 Introduction	4
+1.1 Purpose of this document	4
+1.2 Main audience	4
+1.3 Data feeds	4
+2 Overview of the Direct NFCAST Interface	7
+2.1 Infrastructure requirements	7
+2.2 Overview of the various message types	7
+2.3 Service Messages	7
+2.4 Data Messages	7
+2.5 What is not included in these interfaces	8
+2.6 Freedom of choice	8
+2.7 Structure of Messages	8
+2.8 Compression	8
+2.9 Recovery	9
+3 Trading states for a sample business day	10
+3.1 Product type: Pre-open	10
+3.2 Product type: Special Pre-open (SPOS)	11
+3.3 Product type: Periodic Call Auction (PCAS)	11
+3.4 Product type: Continuous	12
+3.5 Market Halt	13
+3.6 Block Deal Session	14
+Fine tuning client applications	15
+3.7 Buffer size	15
+3.8 Packet and message processing	15
+4 Detailed data feed description and layout	16
+4.1 Service messages	16
+4.2 Time Broadcast Message [2001]	16
+4.3 Auction Keep Alive Message [2030]	17
+4.4 Market data messages	17
+4.5 Product State Change Message [2002]	17
+4.6 Shortage Auction Session Change Message [2003]	19
+4.7 News Headline [2004]	20
+2
+4.8 Market Picture Broadcast [2020 and 2021]	21
+4.9 Auction Market Picture Broadcast [ 2017]	28
+4.10 Odd-lot Market Picture Messages [2027]	30
+4.11 Debt Market Picture [2033]	32
+4.12 Index Change Message [2011 and 2012]	37
+4.13 Limit Price Protection Range [2034]	39
+4.14 Call Auction cancelled quantity message [2035]	41
+4.15 Close Price [2014]	42
+4.16 Open Interest Message [2015]	43
+4.17 VaR Percentage [2016]	45
+4.18 RBI Reference Rate [2022]	46
+4.19 Implied Volatility [2028]	47
+5 Decompression of Market Depth Message	48
+5.1 Compression Principle	49
+5.2 Decompression Mechanism	49
+5.3 Decompression Mechanism for Best 5 substructure	49
+5.4 Reading Sequence	49
+5.5 Decompression logic	50
+5.6 Handling condition when no orders present at a price point	50
+5.7 Repetition of Instruments	50
+5.8 Summary of decompression mechanism	51
+5.9 Example of Decompression Logic	51
+5.9.1 Example for General Decompression Mechanism	51
+5.9.2 Example for Best 5 structure decompression mechanism	51
+5.9.3 Example for full market picture packet reading	53
+6 Appendix	55
+6.1 Index Code Mapping Table	55
+6.2 Product (Market Segment) Identifier in Master Files	55
+6.3 Price Precision Table	55
+7 Change log	55
+7.1 Changes compared to NFCAST with IML	55
+7.2 Changes compared to version 1	57
+7.3 Changes compared to version 2	58
+7.4 Changes compared to version 3	58
+7.5 Changes compared to version 4	59
+3
+
+
+
+1 Introduction
+
+BSE offers public market data as part of the BSE Exchange's new trading architecture. The interfaces distribute information via UDP multicast. The Direct NFCAST Interface (netted) interface is designed for participants who do not need to see every order book update, this has the advantage of keeping the infrastructure costs low. The updates of the order book are sent at regular intervals; they are not provided for every order book change and are sent significantly less frequently than the other feeds. This interface aggregates the order book changes over a specified time interval. Currently, BSE plans to provide market data with a netting interval of 0.80 sec and depth of 5. Only statistical information is provided for on-exchange trades as well as the price and quantity of the last on-exchange trade in the netting interval.
+
+The Direct NFCAST provides the following information to the participant:
+
+* Price level aggregated order book depth and on-exchange trade statistics.
+* Product state change message.
+* Index message.
+* Miscellaneous messages.
+
+1.1 Purpose of this document
+
+The purpose of this document is to provide guidance for programmers during development of applications that read the BSE Market Data Interface.
+It covers a complete reference for market data interface, describes the general business behaviour and provides concepts for the implementation.
+
+The most recent version is available at: www.bseindia.com/nta.aspx
+
+1.2 Main audience
+
+The target audience of this interface specification is experienced software developers support staff that may be involved in development/support activities for the BSE Market Data Interfaces.
+
+Prior knowledge of developing for a capital market is beneficial but not a prerequisite. Knowledge in a programming language is expected.
+
+1.3 Data feeds
+
+BSE supports multiple market data interfaces with each having its unique characteristics. Though this document describes the Direct NFCAST interface in detail, a brief overview of other market data streams is provided here for better understanding the difference between various streams.
+
+
+
+
+4
+
+
+AreaEOBIEMDIMDIDirect NFCASTStream DescriptionThe Enhanced Order Book Interface (un- netted) disseminates every order book change for the entire book and all on- exchange trades without netting.
+
+This interface is designed for participants that rely on low-latency order book updates and data completeness.
+
+
+The un-netted market data is partitioned over several channels; each channel provides information about a group of similar products. As the market becomes busier, the number of messages (and therefore bandwidth usage) increases.The Enhanced Market Data Interface (un-netted) disseminates every order book change up to the configured depth and all on-exchange trades without netting.
+
+
+This interface is designed for participants that rely on low-latency order book updates and data completeness.
+
+
+
+The un-netted market data is partitioned over several channels; each channel provides information about a group of similar products. As the market becomes busier, the number of messages (and therefore bandwidth usage) increases.The Market Data Interface (netted) has a lower bandwidth requirement compared to the un-netted version.
+
+
+
+
+This interface is designed for participants who do not need to see every order book update, this has the advantage of keeping the infrastructure costs low.
+
+Snapshot and incremental updates are sent via the same channel This interface aggregates the order book changes over a specified time intervalThe Direct NFCAST Interface (netted) has a lower bandwidth requirement compared to the un-netted version.
+
+
+
+
+This interface is designed for participants who do not need to see every order book update, this has the advantage of keeping the infrastructure costs low.
+
+
+Only Snapshot updates are sent in this stream.
+The interface aggregates the order book changes over a specified interval of time.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+5
+
+
+In-
+band/Out-of- band deliveryIncremental and snapshots are delivered via different channels,
+i.e. out-of-band delivery LastMsgSeqNumProcess ed. In the snapshot feed provides a link between incremental and snapshot feed, as it carries the sequence number of the last message sent on the incremental feed. Snapshots are needed only for start- up/recovery.Incremental and snapshots are delivered via different channels, i.e. out-of-band delivery LastMsgSeqNumProcessed In the snapshot feed provides a link between incremental and snapshot feed, as it carries the sequence number of the last message sent on the incremental feed.
+Snapshots are needed only for start-up/recovery.Incremental and snapshots are delivered on the same channel, i.e. in-band delivery.
+Snapshots might contain new information.
+A flag (RefreshIndicator) within the snapshot indicates whether it has to be applied or not.
+LastMsgSeqNumProcesse d is not used.Only Snapshot are delivered on the channel. Each snapshot will be complete in nature.
+Snapshot will always have some new information and must be applied on order book.Sequence numbers on message levelMessages on the market data incremental feed have their own sequence number range per
+product; MsgSeqNum's exist on the depth incremental feed only.Messages on the market data incremental feed have their own sequence number range per product; MsgSeqNum's exist on the depth incremental feed only.Messages on the combined market data incremental + snapshot feed have one sequence number range per product.There is no product or stream specific sequence number. Every snapshot will have complete information.Trade Volume ReportingTrade Volume Reporting is provided.
+Each on-exchange trade is reported individually.Trade Volume Reporting is provided.
+Each on-exchange trade is reported individually.Trade Volume Reporting is provided. Statistical information (daily high/low price and total traded quantity) and last trade information is provided.Trade Volume Reporting is provided. Statistical information (daily high/low price and total traded quantity) and last trade information is provided.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+6
+
+
+
+2 Overview of the Direct NFCAST Interface
+
+This chapter describes the Direct NFCAST Interface in brief. It provides the overview of the peculiar characteristics of this market data stream.
+
+
+2.1 Infrastructure requirements
+
+The BSE Direct NFCAST market data interfaces disseminate market data over the BSE multicast network. A router which is capable of handling IP multicast is required for accessing this inter-face. The multicast management protocol is IGMPv2. When utilizing IGMPv3, the IGMPv2 compatibility mode must be enabled.
+
+
+2.2 Overview of the various message types
+
+There are many functional messages and technical messages delivered in this interface. The various message types can be divided into "Service Messages" and "Data Messages".
+
+The Service Messages are technical in nature and are not associated with any product or instrument. The Data Messages ae functional in nature and are always related to products or instrument.
+
+
+2.3 Service Messages
+* Time broadcast message is sent out periodically by the BSE system on multicast address. The current periodicity is one minute.
+* 	Auction keep alive message is network related message. It is used to keep spanning tree alive for the auction related broadcast messages.
+
+
+2.4 Data Messages
+* Market picture message is used to send a snapshot of 5 price levels of the order book and statistical information about on-exchange trades.
+* Product state change message (Session Broadcast) is used to publish the state of the BSE products.
+* Index change message is used to publish the indices current values and day's high, low open
+and close values. The message is sent periodically at a defined interval.
+* Auction market picture message is used to send snapshot of 5 price level of auction order book. The auction here refers to defaulter auction or shortage auction and thus the order book contains only the sell price levels.
+* Close price message is used to send the close price for all instruments in the closing session and at start of the day.
+* 	Open Interest message is used to send the open interest in the market for derivatives contracts.
+* RBI Reference Rate is used to send the Reference rate for USD published by RBI.
+
+
+7
+
+* VaR Percentage Message is used to send the approximate applicable margin percentage for the trade.
+A detailed description of the message types listed above is given in section Detailed data feed description and layout
+
+2.5 What is not included in these interfaces.
+
+The following information is not provided via the new interface:
+
+* In case of derivatives contracts, the prices for underlying are not provided. These prices will be available in multicast form in the multicast stream of the respective segment.
+* Implied prices are only sent for Best Market, they are not sent for the order book depth except for top of book.
+
+
+2.6 Freedom of choice
+
+BSE does not need to provide any software for accessing the services offered. The BSE market data interfaces can be accessed using any platform capable of receiving multicast data feeds. Participants can use any operating system, compiler version or programming language to develop or use specific third- party applications that are tailored to their requirements.
+
+2.7 Structure of Messages
+
+The market data interfaces disseminate data in UDP datagram in network byte order also known as big endian byte order. A UDP datagram has the following structure:
+
+Figure 1: Structure of a UDP datagram
+
+* The UDP datagram starts with message type followed by the actual message (Message).
+* One packet will always have one message only
+
+Each message shown in the picture above has the following sub structure:
+
+* Message Type (Template ID) - a unique identifier for each message type which is sent by BSE
+* Data Part (Message) - the actual message as per the structure defined in API.
+
+Due to the unreliable nature of UDP, every UDP datagram is self-contained; there is no dependency across datagram.
+
+
+2.8 Compression
+
+BSE adopts native compression to reduce the packet size over the wire. The compression is applied on specific messages only. The entire message is not compressed. The compression is applied on frequently
+
+
+8
+
+changing price and quantity field. The client application must apply the decompression logic on specific messages only while other messages can be read directly as per the structure defined in API.
+
+2.9 Recovery
+
+Due to the unreliable nature of UDP multicast it is possible that some packets may either be delayed or may be missing. Furthermore, the UDP packets may be duplicated at the network level. There is no recovery mechanism defined for this channel. Each packet delivered on this stream has complete information and there is no dependency on earlier or subsequent packet. Every packet received should be applied by member application and thus receiving applications need not handle the recovery.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+9
+
+
+3 Trading states for a sample business day
+
+All instruments traded on BSE is classified into various groups called as products. Each product incorporates a set of instruments. The product is also referred as MarketSegment ID. State maintenance or session change in BSE happens at a product level. Each product can transition from one state to another independent of other products. All instruments belonging to a product will follow the same state transition. The product state change message (Session change) is also disseminated at product level. The message Product state change will convey the state change and the product ID also for which the state change or session change is applicable. The master files of the respective segment provide the product identifier against each instrument. Refer section Product Identifiers in master files  to identify the field and their positions in various master files.
+
+This section describes a typical trading day with the new BSE Trading system. Different product may follow different schedule during the day. For example, some products will be eligible for call auction session followed by continuous trading while some may be eligible for call auction only whereas some may be eligible for continuous trading only. Based on their eligibility the products are classified into different product types and each type will have different schedule. The different product types and their different schedule is presented below along with the possible values in each field of the message for each state. The client application can expect the Product state change message (2002) messages in the same sequence for each product belonging to a product type along with the same values as shown below.
+
+3.1 Product type: Pre-open
+
+All products falling in this category will have a call auction session at the start of market and it will be followed by continuous session. A Product state change message (2002) will be sent for each transition and for each product. The possible combination and sequence of market type and current session number received by TPS would be as follows.
+
+TimeMarket TypeSession NumberStart and End FlagDescription7:50 AM00N/ALogon9:00 AM01N/APre-open Order Entry Start9:07 AM -
+9:08 AM00N/APre-open Order Entry End (Random end during the minute)9:08 AM -
+9:12 AM02N/APre-open Matching End (Random)9:15 AM03N/AContinuous Session3:30 PM04N/AClosing3:40 PM05N/APost-Closing session Start
+10
+
+
+4:00 PM07N/AMember Query Session Start6:03 PM06N/AEnd of day
+
+3.2 Product type: Special Pre-open (SPOS)
+
+All products having an IPO or relisting instrument will fall in this category. The products will have a call auction session at the start of market, and it will be followed by continuous session. A Product state change message (2002) will be sent in for each state transition. The possible combination and sequence of market type and current session number received by TPS would be as follows.
+
+TimeMarket
+TypeSession
+NumberStart and
+End FlagDescription7:50 AM00N/ALogon9:00 AM01N/ASPOS Order Entry Start9:44 AM -
+9:45 AM010N/ASPOS Order Entry End (Random)9:45 AM -
+9:55 AM012N/ASPOS Matching End (Random)9:15 AM013N/AContinuous Session3:30 PM04N/AClosing3:40 PM05N/APost-Closing session Start4:00 PM07N/AMember Query Session Start6:03 PM06N/AEnd of day
+
+3.3 Product type: Periodic Call Auction (PCAS)
+
+All products that are classified as illiquid instruments fall under this category. The products operate in call auction session only throughout the day. Call auction sessions is scheduled every hour. A Product state change message (2002) will be sent for each product. The possible combination and sequence of market type and current session number received by TPS would be as follows.
+
+TimeMarket
+TypeSession
+NumberStart and
+End FlagDescription
+
+11
+
+
+7:50 AM00N/ALogon9:30 AM201SPCAS Order Entry Start10:14 AM -
+10:15AM201EPCAS Order Entry End (Random)10:15 AM -
+10:30 AM202EPCAS Matching End (Random)10:30 AM201SPCAS Order Entry Start11:14 AM -
+11:15AM201EPCAS Order Entry End (Random)11:15 AM -
+11:30 AM202EPCAS Matching End (Random)3:30 PM04N/AClosing4:00 PM07N/AMember Query Session Start6:03 PM06N/AEnd of day
+* The same schedule as published above for 2 sessions is applicable other PCAS sessions also which will be conducted every hour during the day till 3:30 PM.
+
+
+3.4 Product type: Continuous
+
+All products falling in this category will have only continuous session. A Product state change (2002) will be sent for each transition and for each product. The possible combination and sequence of market type and current session number received by TPS would be as follows.
+
+
+
+
+TimeMarket
+TypeSession
+NumberStart and
+End FlagDescription7:50 AM00N/ALogon9:15 AM03N/AContinuous Session Start3:30 PM04N/AClosing3:40 PM05N/APost-Closing Session Start
+
+12
+
+
+4:00 PM07N/AMember Query Session Start6:03 PM06N/AEnd of day
+* The above schedule is applicable for currency derivatives and commodities derivatives segment also. However, the time for each state defined above will be different. For details on time for those market, kindly refer the BSEINDIA website.
+
+
+3.5 Market Halt
+
+In case the trading is halted due to breach of circuit limits then the market halts and resumes differently from a normal trading day. The below tables represent session values expected only in case of Market Halt
+
+TimeMarket
+TypeSession
+NumberStart and
+End FlagDescriptionIn case when Normal market starts7:50 AM00N/ALogon9:00 AM01N/APre-open Order Entry Start9:07 AM -
+9:08 AM00N/APre-open Order Entry End (Random)9:08 AM -
+9:12 AM02N/APre-open Matching End (Random)In case Market Halt is triggered at this stage i.e. during Pre-open matching then product state change message with session value as 0 will be sent to indicate market halt. After the halt period,
+market will resume with Call auction and sequence of events will be same as above.9:15 AM03N/AContinuous SessionIn case Market Halt is triggered at this stage, End of Continuous session will be informed, by a Log- on session. Below mentioned session information will be disseminated, when scheduling of
+Normal Call auction and SPOS is done in parallel. This is the case between 9.15 a.m. to 10.00 a.m.00N/AEnd of Continuous Session01N/ANormal Call auction, SPOS Order Entry
+Session start00N/ARandom End of Normal Call auction
+Order Entry Session010N/ARandom End of SPOS
+Order Entry Session [Freeze Session]
+13
+
+
+02N/AEnd of Matching Session of
+Normal Call auction012N/AEnd of Matching Session of
+SPOS03N/AStart of Continuous Session013N/AContinuous Session for SPOSThis is a second scenario, when Market Halt is triggered post 10.00 a.m in which case no SPOS session will be scheduled separately. At this stage, End of Continuous session will be informed by a Log-on session. Below mentioned session information will be disseminated, when scheduling of Normal Call auction prior to Continuous session00N/AEnd of Continuous Session01N/ANormal Call auction Order Entry Session
+start00N/ARandom End of Normal Call auction
+Order Entry Session [Freeze Session]02N/AEnd of Matching Session of Normal Call auction03N/AStart of Continuous Session
+
+
+
+3.6 Block Deal Session
+
+In the equity segment, irrespective of the product type, the block deal session is conducted twice a day for all the instruments. The first block deal session starts before the start of market at 8:45 AM and ends at 9:00 AM. The second block deal session starts at 2:05 PM and ends at 2:15 PM. No product state change message is sent for block deal session any time during the day.
+
+
+
+
+
+
+
+
+
+
+14
+
+
+
+Fine tuning client applications
+
+This chapter covers some aspects of application tuning which should be considered during the design process of receiving applications.
+
+
+3.7 Buffer size
+
+Each UDP packet sent from exchange will not exceed the network MTU which is currently set to 1500 bytes. The size of all the messages is kept within the MTU limits. Also, the messages which are compressed will also have packet size lesser then MTU however the packets on decompression may be higher than the MTU also. The application needs to handle this.
+
+
+3.8 Packet and message processing
+
+It is important that messages are removed from the network in a timely fashion to prevent them from being dropped by the client machine due to "receive buffer" overflow in the IP stack. It is recommended that the client application should always ask for 2000 bytes of data in a single read call from the socket. The read call will always give single packet and the first 4 bytes will always convey the message type.
+The client application can decide on processing or dropping of packet based on the message type received in the first 4 bytes of the message.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+15
+
+
+
+4 Detailed data feed description and layout
+
+This chapter provides message layouts and field information. It is structured by service messages and data messages. The messages generally contain service messages or market data messages.
+
+
+4.1 Service messages
+
+Service messages do not carry any market information. These messages are sent for synchronization or to indicate the status of the service. These messages are sent throughout the day independent of the trading hours and trading states.
+
+
+4.2 Time Broadcast Message [2001]
+
+Time broadcast message is sent by Exchange at an interval of 1 minute. Multiple packets for the same time are sent to compensate for the loss of packets. The message is sent throughout the day with the start of the Trading Engine. The synchronization of clock with this time will not be accurate due to the distance and network involved between client application and exchange.
+
+Applicable Segment : All	Compression: No
+
+Field NameTypeDescriptionValues, meanings, ValidationsMessage TypeLongType of messageReserved
+Field 1LongFor Internal Use.Reserved
+Field 2LongFor Internal Use.Reserved
+Field 3unsigned
+shortFor Internal Use.HourShortThe hour part of time when the message was sent from the
+exchangeMinuteShortThe minute part of time when the message was sent from the
+exchangeSecondShortThe second part of time when the message was sent from the
+exchangeMillisecondShortThe millisecond part of time
+16
+
+
+when the message was sent
+from the exchangeReserved
+Field 4ShortFor Internal Use.Reserved
+Field 5ShortFor Internal Use.Reserved Field 6ShortFor Internal Use.Reserved
+Field 7CharFor Internal Use.Reserved
+Field 8CharFor Internal Use.Reserved
+Field 9Char [2]For Internal Use.
+
+4.3 Auction Keep Alive Message [2030]
+
+Auction keep alive message is network related message. It is used to keep spanning tree alive for auction related broadcast messages. The message is sent by Exchange periodically. The message is of no functional relevance to the client application and should be dropped.
+
+Applicable Segment: Equity	Compression: No
+
+Field NameTypeDescriptionValues, meanings, ValidationsMessage TypeLongType of message
+
+
+
+4.4 Market data messages
+
+The market data messages are generally instrument specific messages and market level messages. Instrument specific messages include the market picture message, close price message, VaR message etc. while the market level messages include the index message, Product state change message etc.
+
+
+4.5 Product State Change Message [2002]
+
+This message is sent by the exchange whenever there is a transition of state for a product. The transition state is depicted by a unique session number. The message is sent for each product which is identified by product ID field.
+
+17
+
+
+Applicable Segment: All	Compression: No
+
+
+Field NameTypeDescriptionValues, meanings, ValidationsMessage TypeLongType of messageValueDescription2002Session ChangeReserved Field 1LongFor Internal Use.Reserved Field 2LongFor Internal Use.Reserved Field 3unsigned
+shortFor Internal Use.HourShortThe hour part of time when the message was sent from the
+exchangeMinuteShortThe minute part of time when the message was sent from the
+exchangeSecondShortThe second part of time when the message was sent from the
+exchangeMillisecondShortThe millisecond part of time
+when the message was sent from the exchangeProduct ID or Market Segment
+IDShortThe identifier of the product for which the session is sentRefer the master files for the details on the product ID or the
+Market segment ID.Reserved Field 4ShortFor Internal Use.FillerShortFor Future UseMarket TypeShortType of market running in the segmentPossible values for Market Type are
+20 - PCAS
+0 - All other market
+
+Refer Section Trading states for sample business day for possible values and sequence of eventsSession NumberShortThe current trading sessionPossible values for Session Number are:ValueDescription0Logon Session or
+End of Session1Call Auction Order
+18
+
+
+Entry Start2Call Auction
+Matching End3Continuous Start4Closing Start5Post-Closing Start6End of Day7Member Query10SPOS Order Entry
+End11SPOS Matching End13SPOS Continuous
+Start
+
+Refer Section Trading states for sample business day for possible values and sequence of
+eventsReserved Field 5LongFor Internal Use.Start End FlagCharIndication for start or End of sessionApplicable for PCAS market only
+
+S - Start of Session E - End of SessionReserved Field 6CharFor Internal Use.Reserved Field 7Char [2]For Internal Use.
+
+4.6 Shortage Auction Session Change Message [2003]
+
+This message is sent by the exchange whenever there is a transition of state for shortage auction session which is conducted once or twice a day. The message is not sent product wise instead a single message for each session of shortage auction is sent.
+
+Applicable Segment: Equity	Compression: No
+
+
+Field NameTypeDescriptionValues, meanings, ValidationsMessage TypeLongType of messageValueDescription2003Auction Session
+Change (Shortage)Reserved Field 1LongFor Internal Use.Reserved Field 2LongFor Internal Use.Reserved Field 3unsignedFor Internal Use.
+19
+
+
+shortHourShortThe hour part of time when the message was sent from the
+exchangeMinuteShortThe minute part of time when the message was sent from the
+exchangeSecondShortThe second part of time when the message was sent from the
+exchangeMillisecondShortThe millisecond part of time when the message was sent
+from the exchangeReserved Field 4ShortFor Internal Use.Reserved Field 5ShortFor Internal Use.FillerShortFor Future UseReserved Field 6ShortFor Internal Use.Session NumberShortThe current trading sessionPossible values for Session Number are:Reserved Field 7LongFor Internal Use.Reserved Field 8CharFor Internal Use.Reserved Field 9CharFor Internal Use.Reserved Field 10Char [2]For Internal Use.
+
+
+4.7 News Headline [2004]
+This message informs about the company news (Announcement Data or notices). The message is sent whenever there is some news or corporate action in a company. This message gives the url for the corporate announcement.
+
+Applicable Segment: Equity & Equity Derivatives	Compression: No
+
+Field NameTypeDescriptionValues, meanings, ValidationsMessage TypeLongType of messageValueDescription
+20
+
+
+2004News HeadlineReserved Field 1LongFor Internal Use.Reserved Field 2LongFor Internal Use.Reserved Field 3unsigned
+shortFor Internal Use.HourShortThe hour part of time when the message was sent from the
+exchangeMinuteShortThe minute part of time when the message was sent from the
+exchangeSecondShortThe second part of time when the message was sent from the
+exchangeMillisecondShortThe millisecond part of time when the message was sent
+from the exchangeReserved Field 4ShortFor Internal Use.Reserved Field 5ShortFor Internal Use.Reserved Field 6ShortFor Internal Use.News CategoryShortThe category of this news.Reserved Field 7ShortFor Internal Use.News IdLongThe news identifier of this newsNews HeadlineChar
+(39+1)The actual news headlines.The weblink for the corporate
+announcementReserved Field 8CharFor Internal UseReserved Field 9CharFor Internal Use.Reserved Field 10Char [2]For Internal Use.
+
+
+
+4.8 Market Picture Broadcast [2020 and 2021]
+This message is sent by the Exchange whenever there is a change in the order book of an instrument/contract. The message is not sent on every update in the order book. Instead, it is sent whenever there is a change in a defined snapshot interval. The interval is currently defined as 800 milliseconds.
+To optimally use the network resources, updates for multiple instrument/ contracts is packaged in a single market picture message. The market picture message is the most frequently sent message and it has the largest size. Thus, to reduce the size of packet over the network, the message is compressed further using native compression algorithm.
+The member application must apply the decompression algorithm to retrieve the message. The decompression logic is explained in detail in section Decompression of Market Picture Message.
+
+
+21
+
+Applicable Segment: All	Compression: Yes
+
+
+Field NameTypeDescriptionValues, meanings,
+ValidationsMessage TypeLongType of messageValueDescription2020Market
+Picture2021Market Picture (Complex
+Instruments)Reserved
+Field 1LongFor Internal Use.Reserved
+Field 2LongFor Internal Use.Reserved
+Field 3unsigned
+shortFor Internal Use.HourShortThe hour part of time when the message was sent from the
+exchangeHourMinuteShortThe minute part of time when the message was sent from the
+exchangeMinuteSecondShortThe second part of time when the message was sent from the
+exchangeSecondMillisecondShortThe millisecond part of time when the message was sent
+from the exchangeMillisecondReserved
+Field 4ShortFor Internal Use.Reserved
+Field 5ShortFor Internal Use.No of
+RecordsShortNo. of market picture records
+sentThis can have a maximum of 6
+recordsThe following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.Instrument
+/Contract CodeLong or
+Long LongInstrument code of the Instrument for which details are being sent.Instrument /contract code.
+
+Datatype is to be treated as long for message 2020 and long-long for message type 2021
+
+22
+
+
+No of TradesUnsigned LongNumber of trades took place during the day for the
+InstrumentThe cumulative no. of trades during the dayTradedLong LongTotal traded quantity during the
+day for the Instrument.The cumulative no. of shares
+traded during the day.VolumeTraded ValueLong LongTotal traded value during the day for the instrument.The cumulative value traded during the day. The value is always disseminated in paise.
+
+The Unit for this field will be
+provided in field "Trade Value Flag" below. If the Flag is not set then the absolute value should
+be considered.Trade Value
+FlagCharUnit for field "Traded Value"'l' denotes lacs
+'c' denotes for croresReserved
+Field 6CharFor Internal Use.Reserved
+Field 7CharFor Internal Use.Reserved
+Field 8CharFor Internal Use.Market TypeShortThe type of marketPossible values for Market Type are
+20 - PCAS
+0 - All other marketSession NumberShortPossible values are
+23
+
+
+LTP
+HourCharThe hour part of time when the message was sent from the
+exchangeHourLTP
+MinuteCharThe minute part of time when the message was sent from the
+exchangeMinuteLTP
+SecondCharThe second part of time when the message was sent from the
+exchangeSecondLTP
+MillisecondChar [3]The millisecond part of time when the message was sent
+from the exchangeMillisecondReserved
+Field 9Char [2]For Internal Use.Reserved
+Field 10ShortFor Internal Use.Reserved
+Field 11Long LongFor Internal Use.No of Price
+pointsShortNumber of Price points in the
+depth substructure belowCurrently "n" = 5TimestampLong LongTime at which the market data
+was generated at ExchangeThe time is in Julian format.Close RateLongClose price for the current trading day. The field will be populated once close price for the day is determined else it
+would be 0For decimal precision refer Price Precision TableLTQ (Last Traded
+Quantity)Long LongQuantity which got executed in the last tradeThe total quantity traded in the last trade.LTP
+(Last Traded Price)LongPrice at which last trade took place.For decimal precision refer Price Precision TableOpen RateLongOpening rate of the Instrument.For decimal precision refer Price Precision TablePrevious Close RateLongPrevious trading day closing rate of the Instrument.For decimal precision refer Price Precision TableHigh RateLongHighest traded rate of the InstrumentFor decimal precision refer Price Precision Table
+24
+
+
+Low RateLongLowest traded rate of the InstrumentFor decimal precision refer Price Precision TableBlock Deal Reference
+PriceLongThe reference price to be used for block deal orders.Indicative Equilibrium PriceLongThe tentative equilibrium price determined during the order entry session of call auction.For decimal precision refer Price Precision Table
+
+Applicable for equity segment instruments only.
+
+The field will be populated in order entry session if tentative equilibrium price is established else it would be 0.Indicative Equilibrium QuantityLong LongThe tentative match able quantity determined during the order entry session of call auctionApplicable for equity segment instruments only.
+
+The field will be populated in order entry session if tentative equilibrium price is established else it would be 0.Total Bid QuantityLong LongTotal Buy Quantity present in order book across all the price
+points.Total quantity present in the buy order bookTotal Offer QuantityLong LongTotal Sell Quantity present in order book across all the price
+points.Total quantity present in the sell order bookLower Circuit
+LimitLongLower Price band for
+Instrument/ ContractThe lowest rate at which order
+can be placed during the day.Upper Circuit
+LimitLongUpper Price band for
+Instrument/ContractThe highest rate at which order
+can be placed during the day.Weighted Average priceLongWeighted Average traded rate for InstrumentFor decimal precision refer Price Precision TableFollowing sub-structure will repeat number of times as specified in the "No. of Price points"
+field above.
+
+25
+
+
+Best Bid RateLongBest bid rate in the order bookFor decimal precision refer Price Precision TableTotal Bid QuantityLong LongTotal quantity available at best bid rate.In case of equity derivatives and currency derivatives the total quantity will include the implied quantity if it is available.
+
+Total Bid Qty = Actual Order qty
++ Implied Quantity
+
+The implied quantity is
+applicable for the best price point only.No. of Bid at the price pointsUnsigned LongNo. of Orders at the Buy Price pointIt will always show the number of actual orders in the order book. It will not consider the orders contributing towards implied price.
+
+It will be 0 in case only implied quantity is available at the best price point.Implied Buy QuantityLong LongThe quantity implied at the best price point of this contract due to orders in other related contracts.
+If only implied quantity is available at the best price point, then total quantity field and implied quantity field will be same.
+
+If no implied quantity is available at the best price point, then implied quantity field will be 0.Reserved
+Field 12LongFor Internal UseBest Offer RateLongBest offer rateFor decimal precision refer Price Precision Table
+26
+
+
+Total Offer QtyLong LongTotal quantity available at best offer rateIn case of equity derivatives and currency derivatives the total quantity will include the implied quantity if it is available.
+
+Total Offer Qty = Actual Order qty + Implied Quantity
+
+The implied quantity is applicable for the best price point only.No. of Ask at the price pointUnsigned LongNo. of Orders at the Sell Price pointIt will always show the number of direct orders in the order book. It will not consider the orders contributing towards implied price.
+
+It will be 0 if only implied quantity is available at the best price point.Implied Sell QuantityLong LongThe quantity implied at the best price point of this contract due to orders in other related contracts.The implied quantity is applicable for the best price point only.
+
+If only implied quantity is available at the best price point, then total quantity field and implied quantity field will be same.
+
+If no implied quantity is available at the best price point, then implied quantity field will be 0.Reserved
+Field 13LongFor Internal Use.
+
+
+
+
+27
+
+
+
+4.9 Auction Market Picture Broadcast [ 2017]
+This broadcast is sent by Auction system whenever there is a shortage auction scheduled during the day. This message provides information on the seller bids participating in the shortage auction.
+
+Applicable Segment: Equity	Compression: No
+
+Field NameTypeDescriptionValues, meanings,
+ValidationsMessage TypeLongType of messageReserved
+Field 1LongFor Internal Use.Reserved
+Field 2LongFor Internal Use.Reserved
+Field 3unsigned
+shortFor Internal Use.HourShortThe hour part of time when the message was sent from the
+exchangeHourMinuteShortThe minute part of time when the message was sent from the
+exchangeMinuteSecondShortThe second part of time when the message was sent from the
+exchangeSecondMillisecondShortThe millisecond part of time
+when the message was sent from the exchangeMillisecondAuction
+NumberShortThe number of the shortage
+auctionAuction
+Trading SessionShortThe current action trading sessionNo of
+RecordsShortNo. of market picture records
+sentThis can have a maximum of 10
+recordsNotice
+NumberChar
+[10+1]Notice NumberThe notice number ofReserved
+Field 4CharFor Internal Use
+28
+
+
+The following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.Instrument
+/Contract CodeLongInstrument code of the
+Instrument for which details are being sent.Instrument /contract code.Reserved
+Field 5LongFor Internal UseAuction QtyLong LongTotal Auction QuantityCeiling PriceLongHighest Price2 decimal precisionFloor PriceLongLowest Price2 decimal precisionCut-off RateLongLowest
+Offered RateLongLowest offered rate in auction.Cumulative
+QtyLong LongTotal Offered quantityReserved
+Field 6LongFor Internal Use.Reserved
+Field 7ShortFor Internal Use.Reserved
+Field 8ShortFor Internal Use.Reserved
+Field 9CharFor Internal Use.Reserved
+Field 10CharFor Internal Use.Reserved
+Field 11CharFor Internal Use.Reserved
+Field 12CharFor Internal Use.The following sub-structure will repeat 5 times.Likely Cut-off RateLongThe likely highest rate at which execution will take placeOffer QtyLong LongThe cumulative quantity at the likely cut-off rate
+
+
+
+
+
+29
+
+4.10 Odd-lot Market Picture Messages [2027]
+This broadcast is sent by BOLTPLUS whenever there is trade in the odd-lot market. The Odd-lot market trading does not take place on BOLTPLUS platform. This message provides only the trade information and order information is not provided through broadcast message. The TPS applications can drop this message if the odd-lot market trades are not useful for them.
+
+Applicable Segment: Equity	Compression: No
+
+Field NameTypeDescriptionValues, meanings,
+ValidationsMessage TypeLongType of messageReserved
+Field 1LongFor Internal Use.Reserved
+Field 2LongFor Internal Use.Reserved
+Field 3unsigned
+shortFor Internal Use.HourShortThe hour part of time when the message was sent from the
+exchangeHourMinuteShortThe minute part of time when the message was sent from the
+exchangeMinuteSecondShortThe second part of time when
+the message was sent from the exchangeSecondMillisecondShortThe millisecond part of time when the message was sent
+from the exchangeMillisecondReserved
+Field 4ShortFor Internal Use.Reserved
+Field 5ShortFor Internal Use.No of
+RecordsShortNo. of market picture records
+sentThis can have a maximum of 6
+recordsThe following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.Instrument
+/Contract CodeLongInstrument code of the Instrument for which details are
+being sent.Instrument /contract code.
+30
+
+
+Open RateLongOpening rate of the Instrument.2 decimal precisionPrevious
+Close RateLongPrevious trading day closing
+rate of the Instrument.2 decimal precisionHigh RateLongHighest traded rate of the
+Instrument2 decimal precisionLow RateLongLowest traded rate of the
+Instrument2 decimal precisionNo of TradesUnsigned LongNumber of trades took place during the day for the
+InstrumentThe cumulative no. of trades during the dayTraded
+VolumeLong LongTotal traded quantity during the
+day for the Instrument.The cumulative no. of shares
+traded during the day.Traded ValueLong LongTotal traded value during the day for the instrument.The cumulative value traded during the day.
+
+The Unit for this field will be
+provided in field "Trade Value Flag" below.LTQ (Last
+Traded Quantity)Long LongQuantity which got executed in the last tradeThe total quantity traded in the last trade.LTP
+(Last Traded Price)LongPrice at which last trade took place.2 decimal precisionClose RateLongClose price for the current trading day. The field will be populated once close price for the day is determined else it
+would be 02 decimal precisionTrade Value
+FlagCharUnit for field "Traded Value"'l' denotes lacs
+'c' denotes for croresReserved
+Field 7CharFor Internal Use.Reserved
+Field 8CharFor Internal Use.Reserved
+Field 9CharFor Internal Use.Lower Circuit
+LimitLongLower Price band for
+Instrument/ ContractThe lowest rate at which order
+can be placed during the day.
+
+31
+
+
+Upper Circuit
+LimitLongUpper Price band for
+Instrument/ContractThe highest rate at which order
+can be placed during the day.Weighted
+Average priceLongWeighted Average traded rate
+for InstrumentThe weighted average traded
+rate for the day.Market TypeShortThe type of marketNot applicableSession
+NumberShortNot applicableLTP
+HourCharThe hour part of time when the message was sent from the
+exchangeHourLTP
+MinuteCharThe minute part of time when
+the message was sent from the exchangeMinuteLTP
+SecondCharThe second part of time when
+the message was sent from the exchangeSecondLTP
+MillisecondChar [3]The millisecond part of time
+when the message was sent from the exchangeMillisecondReserved
+Field 10Char [2]For Internal Use.
+
+
+4.11 Debt Market Picture [2033]
+
+
+This broadcast is sent by BOLTPLUS whenever there is a change in order book of a debt instrument/contract. The message is applicable for debt instruments where trading takes place on clean price.
+
+The message is not sent on every update in the order book. Instead, it is sent whenever there is a change in a defined snapshot interval. The interval is currently defined as 800 milliseconds.
+In order to optimally use the network resources, updates for multiple instrument/ contracts is packaged in a single market picture message. The market picture message is the most frequently sent message with the highest packet size. Thus, to reduce the size of packet over the network, the message is compressed further using native compression algorithm.
+
+The member application must apply the decompression algorithm to retrieve the message. Applicable Segment: Equity	Compression: Yes
+Field NameTypeDescriptionValues, meanings,
+Validations
+
+
+32
+
+
+Message TypeLongType of messageReserved
+Field 1LongFor Internal UseReserved
+Field 2LongFor Internal UseReserved
+Field 3unsigned
+shortFor Internal UseHourShortTime : HHMinuteShortTime : MMSecondShortTime : SSMillisecondShortTime : sssReserved
+Field 4ShortFor Internal UseReserved
+Field 5ShortFor Internal UseNo of
+RecordsShortNo. of market picture records
+sentThis can have a maximum of 6
+recordsThe following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.Instrument CodeLongInstrument code of the Instrument for which Touchline
+details are being sent.No of TradesLongNumber of trades took place during the day for the
+InstrumentThe cumulative no. of trades during the dayVolumeLongTotal Traded qty during the day
+for the InstrumentThe cumulative no. of shares
+traded during the dayValueLongTotal Traded value during the
+day for the instrumentThe cumulative value traded
+during the dayTrade Value
+FlagCharUnit for value'l' for lacs, 'c' for croresReserved
+Field 6CharFor Internal UseReserved
+Field 7CharFor Internal Use
+
+
+33
+
+
+Reserved
+Field 8CharFor Internal UseMarket TypeShortThe type of marketPossible values for Market Type are
+20 - PCAS
+0 - All other marketSession NumberShortThe Session of the InstrumentPossible values areLTP HourCharHour at which Last trade took
+placeLTP MinuteCharMinute at which Last trade took
+placeLTP SecondCharSecond at which Last trade took
+placeLTP
+MillisecondChar [3]Millisecond at which Last trade
+took placeReserved
+Field 9Char [2]For Internal UseReserved
+Field 10ShortFor Internal UseNo of Price
+pointsShort"n" Number of Price pointsCurrently "n" = 5TimestampLong LongTime at which the market data
+was generated at ExchangeThe time is in Julian format.
+
+
+
+
+
+34
+
+
+Close RateLongClose price for the current day once close price for the day is determined in closing sessionThe rate will be in basis points
+i.e. 4 decimal precision.
+
+The field will be populated once close price for the day is determined else it would be 0YTMLongYield to Maturity computed based on the last traded price of
+a bondYTPLongYield to Put computed based on the last traded price of a bond. Applicable only if a bond is
+PutableYTCLongYield to Call computed based on the last traded price of a bond. Applicable only if a bond is
+CallableLast Trade
+QtyLongQuantity which got executed in
+the Last tradeThe total quantity traded in the
+last tradeLTPLongPrice at which last trade took place.The rate will be in basis points
+i.e. 4 decimal precision.
+The traded rate in the last tradeOpen RateLongOpening rate of the Instrument.The rate will be in basis points
+i.e. 4 decimal precision.Previous Close RateLongPrevious Closing rate of the InstrumentThe rate will be in basis points
+i.e. 4 decimal precision.
+Previous day's close price in all
+sessionsHigh RateLongHighest traded rate of the InstrumentThe rate will be in basis points
+i.e. 4 decimal precision.
+.Low RateLongLowest traded rate of the InstrumentThe rate will be in basis points
+i.e. 4 decimal precision.Reserved
+Field 11LongFor Internal UseIndicative
+Equilibrium PriceLongFor Future Use
+35
+
+
+Indicative Equilibrium
+QtyLongFor Future UseTotal Bid QtyLongTotal Bid QtyTotal quantity present in the buy
+order bookTotal Offer
+QtyLongTotal Offer QtyTotal quantity present in the sell
+order bookLower Circuit LimitLongLower Circuit limit for InstrumentThe rate will be in basis points
+i.e. 4 decimal precision.
+
+The lowest rate at which order can be placed during the dayUpper Circuit LimitLongUpper Circuit limit for InstrumentThe rate will be in basis points
+i.e. 4 decimal precision.
+
+The highest rate at which order can be placed during the dayWeighted AverageLongWeighted Average for InstrumentThe rate will be in basis points
+i.e. 4 decimal precision.Following sub-structure will repeat number of times as specified in the "No. of Price points"
+field above.Best Bid RateLongBest bid rate in paiseThe rate will be in basis points
+i.e. 4 decimal precision.Total Bid QtyLongTotal quantity available at best
+bid rate.Buy YTMLongYield to Maturity computed
+based on the Buy price of a bondBuy YTPLongYield to Call computed based on the Buy price of a bond.
+Applicable only if a bond is
+CallableBuy YTCLongYield to Call computed based on the Buy price of a bond.
+Applicable only if a bond is
+CallableNo. of Bid at the price
+pointsLongNo. of Orders at the Buy Price pointIt will always show the number of actual orders in the order
+book.
+36
+
+
+FillerLongBest Offer RateLongBest offer rate in paiseThe rate will be in basis points
+i.e. 4 decimal precision.Total Offer
+QtyLongTotal quantity available at best
+offer rateSell YTMLongYield to Maturity computed
+based on the Sell price of a bondSell YTPLongYield to Call computed based on the Sell price of a bond.
+Applicable only if a bond is
+CallableSell YTCLongYield to Call computed based on the Sell price of a bond.
+Applicable only if a bond is
+CallableNo. of Ask at the price
+pointLongNo. of Orders at the Sell Price pointIt will always show the number of direct orders in the order
+book.FillerLong
+
+
+4.12 Index Change Message [2011 and 2012]
+
+This message provides information for the change in the index value for the indices. The message is delivered in the equity multicast stream only. Different Indices are disseminated at different frequencies in two different messages. Indices with lower dissemination frequency are sent in message (2011) and others are sent in message (2012).
+
+Applicable Segment: Equity	Compression: No
+
+Field NameData TypeDescriptionValues, meanings, ValidationsMessage TypeLongType of message.
+
+
+
+
+The dissemination frequency is different in above 2 messages. Currently defined frequency is:
+37
+
+
+2011 = 1 second.
+2012 = 8 second.
+
+Critical Indices like Sensex BSE100 etc. are sent in 2011 and others in 2012.Reserved
+Field 1LongFor Internal Use.Reserved
+Field 2LongFor Internal Use.Reserved
+Field 3unsigne
+d shortFor Internal Use.HourShortThe hour part of time when the message was sent from the
+exchangeMinuteShortThe minute part of time when the message was sent from the
+exchangeSecondShortThe second part of time when the message was sent from the
+exchangeMillisecondShortThe millisecond part of time when the message was sent from the
+exchangeReserved
+Field 4ShortFor Internal Use.Reserved
+Field 5ShortFor Internal Use.No. of RecordsShortNumber of records.Maximum no. of records = 24The following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.Index CodeLongThe Index Code assigned to the index.Refer Section Index Code Mapping for details on Index
+codesIndex HighLongDay's highest index value.Index LowLongDay's lowest index value.Index OpenLongDay's opening index value.Previous Index CloseLongPrevious day's index closing value/indicative close value/
+today's index close value.Index ValueLongCurrent index value.In Continuous session it will contain current index value and closing session onwards it would contain the day's closing index
+value.
+38
+
+
+
+The field has two decimal precision.Index IDChar
+(6+1)The Index Identifier of the index
+for which values are being sent.E.g. SENSEX, BSE100 etc.Reserved
+Field 6CharFor Internal Use.Reserved
+Field 7CharFor Internal Use.Reserved Field 8CharFor Internal Use.Reserved
+Field 9Char [2]For Internal Use.Index Close Value IndicatorShortIdentifier for the value published
+in "Previous Index Close" field0 = Indicates Previous Index Close value
+1= Indicates today's Indicative
+closing value of Index
+2= Indicates today's Index Close
+Value	disseminated	in	the closing sessionReserved
+Field 10ShortFor Internal Use.
+
+
+4.13 Limit Price Protection Range [2034]
+The message is used to communicate the execution range of limit orders applicable for the instrument. The range is dynamic in nature and changes with the reference price of the instrument. The reference price can be the LTP or the theoretical price.
+
+Applicable Segment: Equity Derivatives	Compression: No
+
+
+
+Field NameData TypeDescriptionValues, meanings, Validations
+
+
+
+Message Type
+
+
+
+
+Long
+
+
+
+
+Type of messageReserved
+Field 1
+Long
+For Internal UseReserved Field 2
+Long
+For Internal UseReservedunsigneFor Internal Use
+39
+
+
+Field 3d short
+
+Hour
+
+ShortThe hour part of time when the message was sent from the
+exchange
+
+Hour
+
+Minute
+
+ShortThe minute part of time when the message was sent from the
+exchange
+
+MinuteSecondShortThe second part of time when the message was sent from the
+exchangeMillisecondShortThe millisecond part of time when the message was sent from the
+exchangeReserved
+Field 4ShortFor Internal Use.Reserved Field 5ShortFor Internal Use.No. of
+RecordsShortNumber of records.Maximum no. of records = 20The following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.Instrument
+/Contract Code
+
+LongInstrument code of the
+Instrument for which details are being sent.
+
+Instrument /contract code.Upper Limit Execution
+Price
+
+Long
+The Upper price beyond which the Buy orders will be rejectedLower Limit Execution
+Price
+
+Long
+The lower price beyond which the Sell orders will be rejectedReserved
+Field 6
+Long
+For Internal Use.
+future useReserved
+Field 7
+Long
+For Internal Use.
+future use
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+40
+
+4.14 Call Auction cancelled quantity message [2035]
+The message is used to communicate the total cancelled buy/sell orders and cancelled buy/sell quantity applicable for the instrument during SPOS/ Relisting auction session. The data will be dynamic in nature during the auction session of the instrument. The cancelled quantity information will be cumulative for the call auction session
+
+Applicable Segment: Equity	Compression: No
+
+Field NameData
+TypeDescriptionValues, meanings,
+Validations
+
+
+
+
+Message Type
+
+
+
+
+
+Long
+
+
+
+
+
+Type of messageReserved
+Field 1
+Long
+For Internal UseReserved
+Field 2
+Long
+For Internal UseReserved
+Field 3unsigne
+d short
+For Internal Use
+
+Hour
+
+ShortThe hour part of time when the
+message was sent from the exchange
+
+Hour
+
+Minute
+
+ShortThe minute part of time when the message was sent from the
+exchange
+
+MinuteSecondShortThe second part of time when the
+message was sent from the exchangeMillisecondShortThe millisecond part of time when the message was sent from the
+exchangeReserved
+Field 4ShortFor Internal Use.Reserved
+Field 5ShortFor Internal Use.No. of
+RecordsShortNumber of records.Maximum no. of records = 20The following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.InstrumentLongInstrument code of theInstrument /contract code.
+41
+
+
+/Contract
+CodeInstrument for which details are
+being sent.Cancelled
+Buy QtyLongThe number of total buy quantity
+cancelled during auction session.LongCancelled
+Buy Orders
+LongThe total number of cancelled
+buy orders during auction session.Cancelled
+Sell QtyLongThe number of total sell quantity
+cancelled during auction session.LongCancelled
+Sell Orders
+LongThe total number of cancelled sell
+orders during auction session.Reserved
+Field 6
+LongFor Internal Use.future useReserved
+Field 7
+LongFor Internal Use.future use
+
+
+4.15 Close Price [2014]
+
+Close price message will be sent in closing session when the close price of the instrument is calculated. The message will have day's close price. Additionally, the close price message will be sent in the morning before the start of the market. In this case the close price will be the previous day's close price.
+
+Applicable Segment: All	Compression: No
+
+Field NameTypeDescriptionValues, meanings, ValidationsMessage TypeLongType of messageReserved Field 1LongFor Internal Use.Reserved Field 2LongFor Internal Use.Reserved Field 3unsign ed
+shortFor Internal Use.HourShortThe hour part of time when the message was sent from the
+exchangeMinuteShortThe minute part of time when the message was sent from the
+exchangeSecondShortThe second part of time when the message was sent from the
+42
+
+
+exchangeMillisecondShortThe millisecond part of time when the message was sent
+from the exchangeReserved Field 4ShortFor Internal Use.Reserved Field 5ShortFor Internal Use.No of RecordsShortNumber of Instruments in this
+messageMaximum no. of records = 80The following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.Instrument CodeLongInstrument Id of the InstrumentPriceLongThe close price for the InstrumentFor decimal precision refer Price Precision TableReserved Field 6CharFor Internal UseTraded FlagCharTraded Today.Y- Yes
+N- NoReserved Field 7CharFor Internal Use.Reserved Field 8CharFor Internal Use.
+
+
+4.16 Open Interest Message [2015]
+
+
+Open Interest message will be sent by BOLTPLUS in a specific interval for the Derivatives instrument listed in the Exchange. The broadcast will be sent whenever there is change in the OI of an instrument. For recovery purposes the OI will be sent for all contracts periodically throughout the day irrespective if there was any change in the OI.
+
+Applicable Segment: All Derivatives	Compression: No
+
+
+
+Field NameTypeDescriptionValues, meanings, ValidationsMessage TypeLongType of messageValueDescription2015Open InterestReserved
+Field 1LongFor Internal UseReserved
+Field 2LongFor Internal UseReserved
+Field 3unsigned
+shortFor Internal UseHourShortThe hour part of time when the
+
+43
+
+
+message was sent from the
+exchangeMinuteShortThe minute part of time when the message was sent from the
+exchangeSecondShortThe second part of time when the message was sent from the
+exchangeMillisecondShortThe millisecond part of time when the message was sent
+from the exchangeReserved
+Field 4ShortFor Internal Use.Reserved
+Field 5ShortFor Internal Use.No. of RecordsShortNumber of recordsMaximum no. of records = 26The following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.Instrument
+IdlongInstrument Id of the InstrumentOpen Interest QuantityLong longThe Open Interest in the market in QTY termsFor Currency Derivatives segment, the value will be in lots while for equity derivatives the
+value will be in qtyOpen Interest
+Valuelong longThe Open interest values.2 decimal precisionOpen Interest ChangelongChange in open interest in term of quantityFor Currency Derivatives segment, the value will be in lots while for equity derivatives the
+value will be in qtyReserved
+Field 6Char(4)For Internal Use.Reserved
+Field 7LongFor Internal Use.Reserved
+Field 8ShortFor Internal Use.Reserved
+Field 9ShortFor Internal Use.Reserved
+Field 10CharFor Internal UseReserved Field 11CharFor Internal Use.Reserved
+Field 12Char[2]For Internal Use.
+44
+
+
+
+4.17 VaR Percentage [2016]
+
+
+VAR Percentage message will be sent by Exchange at periodic interval. The latest Instrument wise VAR and ELM VAR Percentages will be sent by Exchange. This message is applicable for equity instruments, and it will be available in Equity multicast stream only
+
+Applicable Segment: All	Compression: No
+
+Field NameTypeDescriptionValues, meanings, ValidationsMessage TypelongType of messageReserved
+Field 1LongFor Internal Use.Reserved
+Field 2LongFor Internal UseReserved
+Field 3unsigne
+d shortFor Internal UseHourShortThe hour part of time when the message was sent from the
+exchangeMinuteShortThe minute part of time when the message was sent from the
+exchangeSecondShortThe second part of time when the message was sent from the
+exchangeMillisecondShortThe millisecond part of time
+when the message was sent from the exchangeReserved
+Field 4ShortFor Internal Use.Reserved
+Field 5ShortFor Internal Use.No. of
+RecordsShortNumber of recordsMaximum no. of records = 40The following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.Instrument
+codeLongInstrument Id of the Instrument
+
+45
+
+
+VAR/IM
+PercentageLongThe applicable VaR for the current period.2 decimal precisionELM VAR
+PercentageLongThe applicable ELM for the current period.2 decimal precisionReserved
+Field 6LongFor Internal Use.Reserved
+Field 7ShortFor Internal Use.Reserved
+FieldShortFor Internal Use.Reserved
+Field 8CharFor Internal UseIdentifierCharIdentifier is used to identify the market for which the message is
+sentE = EquityReserved
+Field 9Char[2]For Internal Use.
+Note: If the VAR and ELMVAR values received from the CTE are 975 and 1425, it means that the VAR percentage and the ELMVAR percentage are 9.75% and 14.25% respectively.
+
+4.18 RBI Reference Rate [2022]
+
+
+This message is used to disseminate the reference rate published by RBI for foreign exchange. The rate is published multiple times during the day. The date field specifies the date for which the rate is applicable. This field can be used to identify if the new rate is published by RBI.
+
+Applicable Segment: Currency Derivatives	Compression: No
+
+Field NameTypeDescriptionRemarksMessage TypeLongType of messageValueDescription2022RBI Reference RateReserved
+Field 1LongReserved
+Field 2LongFor Internal UseReserved
+Field 3unsigned
+shortFor Internal UseHourShortThe hour part of time when the message was sent from the
+exchangeMinuteShortThe minute part of time when
+the message was sent from the
+46
+
+
+exchangeSecondShortThe second part of time when the message was sent from the
+exchangeMillisecondShortThe millisecond part of time when the message was sent
+from the exchangeReserved
+Field 4ShortReserved Field 5ShortFor Internal UseNo. Of RecordsShortNumber of recordsIndicates the number of times
+the following sub structure will repeatThe following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.Underlying Asset IdLongThe underlying Asset600 - USD
+601 - GBP
+602- JPY
+603 - EURRBI RateLongThe reference rate in bpsThe rate should be divided by
+10000 to get rate in decimal.Reserved
+Field 6ShortFor future useReserved
+Field 7ShortFor future useDateChar(11)The date for which the reference
+rate is applicable.Format of the field
+DD-MM-YYYYFillerChar(1)Pad
+4.19 Implied Volatility [2028]
+
+This message will be sent for the Derivatives contracts for trading activities. Applicable Segment: Equity Derivatives	Compression: No
+Field NameTypeDescriptionRemarksMessage TypeLongType of messageValueDescription2028Implied VolatilityReserved Field 1LongReserved Field 2LongFor Internal UseReserved Field 3unsign
+ed shortFor Internal UseHourShortThe hour part of time when the47
+
+
+message was sent from the
+exchangeMinuteShortThe minute part of time when the message was sent from the
+exchangeSecondShortThe second part of time when the message was sent from the
+exchangeMillisecondShortThe millisecond part of time when the message was sent
+from the exchangeReserved Field 4ShortReserved Field 5ShortFor Internal UseNo. Of RecordsShortNumber of recordsIndicates the number of times the following sub structure will
+repeat. Max 13The following sub-structure will repeat no. of times as specified in the "No. of Records" field
+above.
+Instrument Id
+LongInstrument Id of the
+Instrument
+
+
+Implied Volatility
+
+
+Long LongTo display Implied Volatility (IV) in percentage term. The value
+needs to be multiplied by 100 rounded up to 2 decimalsReserved Field 6Long LongReserved Field 7Long LongReserved Field 8Long LongReserved Field 9Long LongReserved Field 10Long LongReserved Field 11Long LongReserved Field 12LongFor Internal UseReserved Field 13ShortFor Internal UseReserved Field 14ShortFor Internal UseReserved Field 15CharFor Internal UseReserved Field 16CharFor Internal UseReserved Field 17Char[2]For Internal Use
+
+
+5 Decompression of Market Depth Message
+BSE applies the compression only on market picture messages viz Message type 2020 and 2021 only. All other market data messages can be read from the socket directly as per the structure defined in API. The compression principle used is proprietary.
+
+
+
+48
+
+In case of market picture message, the entire market picture message is not sent in compressed format. For each record present in the market picture packet, the compression starts with the open rate field and ends with the last field for that record. All data points from open rates onwards are in compressed format. The decompression logic is detailed with an example in section Example for full market picture reading
+
+It is suggested that the user should read 2000 bytes of data by default in a single read call. This single read call will get single packet only. The first 4 bytes will convey the message type and depending upon the message type the user should process the required messages or drop the message if not required. Since the size of market picture message cannot be ascertained due to compression logic, the market picture message needs to be read byte by byte. It cannot be mapped to the structure directly as defined in the API.
+Binary values are presented in big-endian byte order, so the TPS application needs to convert it to little- endian byte order.
+* Big-Endian means that the most significant byte of any multibyte data field is stored at the lowest memory address, which is also the address of the larger field.
+* Little-Endian means that the least significant byte of any multibyte data field is stored at the lowest memory address, which is also the address of the larger field.
+
+5.1 Compression Principle
+
+The idea used in compression is that rate fields in the structure are defined as long (4 bytes) however since all the prices for an instrument usually operates in nearby range thus instead of using 4 bytes for each price, if differential value with respect to a base price is sent then the differential value would generally be no exceeding 2 bytes capacity. Thus 2 bytes on each price field can be saved. Similar is the idea behind the quantity related field in the structure.
+
+5.2 Decompression Mechanism
+
+For decompression 2 fields are marked as base fields. One base field (LTP) is used for price and the other base field (LTQ) is used for Quantity. All the compressed fields contain the difference value with respect to base fields in 2 bytes. The user needs to add this 2-byte field value with the base field value to arrive the actual value of the next filed.
+In case the difference value exceeds 2 bytes then the actual value is sent in next 4 bytes. So, for all compressed fields the user needs to read 2 bytes first then depending upon the value in the 2 bytes field the user needs to decide what to do next.
+If the 2 bytes field value is 32767 the user needs to read the next 4 bytes to have the actual value as the diff value exceeds 2 bytes. The logic is explained in detail with an example in the example section Example for full market picture packet reading
+
+5.3 Decompression Mechanism for Best 5 substructure
+
+In case of best 5 structures, 3 additional aspects are covered in decompression mechanism
+
+5.4 Reading Sequence
+
+The best 5 structure needs to be read for buy side and sell side independently i.e. the best 5 Bid structure is read first followed by best 5 offer structure.
+Read 5 Best Bid Fields in the following order i.e.
+
+49
+
+* Best Bid Rate1, Total Bid Qty1, No. of Bid at the price points1, Implied Buy Quantity 1
+* Best Bid Rate2, Total Bid Qty2, No. of Bid at the price points2, Implied Buy Quantity 2
+* Best Bid Rate3, Total Bid Qty3, No. of Bid at the price points3, Implied Buy Quantity 3
+* Best Bid Rate4, Total Bid Qty4, No. of Bid at the price points4, Implied Buy Quantity 4
+      * Best Bid Rate5, Total Bid Qty5, No. of Bid at the price points5, Implied Buy Quantity 5 Once 5 Best Bid Fields completed then start reading the 5 Best Offer Fields in similar order.
+5.5 Decompression logic
+
+The general decompression mechanism mentioned above holds true for best 5 structures also. Additionally, the base fields are used to decompress best 5 structure changes with each level.
+The base field used for different levels is different i.e. for e.g. the base fields used in level 1 are different than base fields used in level 2.
+For each level the base fields are previous level field values. The table below provides the base filed used in each level for the buy side best 5 structures.
+
+Level 1Best Bid 1Best Bid Qty 1No of orders 1Implied Buy Qty 1BaseLTPLTQLTQLTQLevel 2Best Bid 2Best Bid Qty 2No of orders 2Implied Buy Qty 2BaseBest Bid 1Best Bid Qty 1No of orders 1Implied Buy Qty 1Level 3Best Bid 3Best Bid Qty 3No of orders 3Implied Buy Qty 3BaseBest Bid 2Best Bid Qty 2No of orders 2Implied Buy Qty 2Level 4Best Bid 4Best Bid Qty 4No of orders 4Implied Buy Qty 4BaseBest Bid 3Best Bid Qty 3No of orders 3Implied Buy Qty 3Level 5Best Bid 5Best Bid Qty 5No of orders 5Implied Buy Qty 5BaseBest Bid 4Best Bid Qty 4No of orders 4Implied Buy Qty 4
+Similar is the decompression logic for the sell side best 5 structures.
+
+5.6 Handling condition when no orders present at a price point
+
+In the best 5 structure, it is possible that the orders may not be present on all 5 price points thus the price points where there are no orders are present are not sent in the structure. Thus, during decompression of the best 5 substructure, additionally following logic needs to be also applied.
+If while reading the 5 Best Bid Fields if any Best Bid Rate is equals to 32766 then the remaining Best Bid Fields will not be present so 32766 indicates there are no more buy price points available in the book.
+Similarly, while reading the 5 Best Offer Fields if any Best Offer Rate is equals to -32766 then the remaining 5 Best Offer Fields will not be present.
+5.7 Repetition of Instruments
+
+Once the compression of the first instrument is completed the user needs to know the number of bytes
+he has read. Let's assume after the first instrument the number of bytes read as 160.
+So, the user needs to start reading 4 bytes from 160 bytes to get instrument code. Read the next 4 bytes for number of trades and continue till compression starts. Store the base values in memory for the second instrument. Then apply the compression logic.
+
+
+50
+
+5.8 Summary of decompression mechanism
+
+* Identify the base values.
+* Store the base values in memory.
+* Read next 2 bytes and add the value to the base value to get final value.
+* 	If value is 32767 means diff value is exceeded, thus read next 4 bytes to have the actual value.
+
+For Best 5 structure Read 2 bytes
+* If value is 32767 means diff value is exceeded, thus read next 4 bytes to have the actual value.
+* If value is 32766 or -32766 means end of best bid or best offer.
+* The base value for level 1 is LTP and LTQ
+* The base value for all subsequent level (level n) is its previous level (level n-1
+5.9 Example of Decompression Logic
+
+Following are 3 examples explaining the decompression logic for the market picture message.
+
+5.9.1 Example for General Decompression Mechanism
+
+Let's say base field for Rate is Last Traded Rate and its value is 1000. Open Rate as 500 and Previous
+Close Rate as 40000 and High Rate as 1000.
+
+FieldCompressed/ BaseValueByteActionLast Traded RateBase10004Read 4 bytes to get 1000 and store it in memoryOpen RateCompressed-5002Read next 2 bytes to get -500 and apply it to LTR
+to get the final value as 500.Previous Close RateCompressed32767
+
+
+400002
+
+
+4Read 2 bytes to get 32767 and this value is an indicator that diff value exceeds 2 bytes
+
+Read next 4 bytes to have the actual value 40000. No need to apply base value.High RateCompressed02Read next 2 bytes to get 0 and apply it to LTR to
+get the final value as 1000.
+5.9.2 Example for Best 5 structure decompression mechanism.
+
+For example, for an instrument only one bid rate and no offer rate are available as below.
+Best Bid Rate1 as 1000, Total Bid Qty1=25, No. of Bid at the price points1= 5, Implied Buy Qty=0 and no Offer Rate
+Base LTP is 1000 and Base LTQ is 10
+
+
+FieldCompressed/ BaseValueByteAction
+51
+
+
+Last Traded RateBase10004Assume already available in memoryLast Traded
+QuantityBase104Assume already available in memoryBest Bid Rate1Compressed02Read next 2 bytes to get 0 and apply it to LTR
+to get the final value as 1000.Total Bid Qty1Compressed152Read next 2 bytes to get 15 and apply it to LTQ
+to get the final value as 25.Bid at the price
+points1Compressed-52Read next 2 bytes to get -5 and apply it to LTQ
+to get the final value as 5.Implied Buy
+Quantity 1Compressed-102Read next 2 bytes to get -10 and apply it to
+LTQ to get the final value as 0.Best Bid Rate2Compressed327662Read next 2 bytes to get 32766 indicates end
+of Best bid [Not available]Total Bid Qty2CompressedNA0Not AvailableBid at the price
+points2CompressedNA0Not AvailableImplied Buy
+Quantity 2CompressedNA0Not AvailableBest Bid Rate3CompressedNA0Not AvailableTotal Bid Qty3CompressedNA0Not AvailableBid at the price
+points3CompressedNA0Not AvailableImplied Buy
+Quantity 3CompressedNA0Not AvailableBest Bid Rate4CompressedNA0Not AvailableTotal Bid Qty4CompressedNA0Not AvailableBid at the price
+points4CompressedNA0Not AvailableImplied Buy
+Quantity 4CompressedNA0Not AvailableBest Bid Rate5CompressedNA0Not AvailableTotal Bid Qty5CompressedNA0Not AvailableBid at the price
+points5CompressedNA0Not AvailableImplied Buy
+Quantity 5CompressedNA0Not AvailableBest Offer Rate1Compressed-327662Read next 2 bytes to get -32766 indicates end
+of Best offer [Not available]Total Offer Qty1CompressedNA0Not AvailableOffer at the price
+points1CompressedNA0Not AvailableImplied Sell
+Quantity 1CompressedNA0Not Available
+
+
+
+52
+
+
+
+5.9.3 Example for full market picture packet reading
+
+Field NameTypeActionMessage TypeLongRead 4 bytesReserved FieldLongRead next 4 bytesReserved FieldLongRead next 4 bytesReserved Fieldunsigne
+d shortRead next 2 bytesHourShortRead next 2 bytesMinuteShortRead next 2 bytesSecondShortRead next 2 bytesMillisecondShortRead next 2 bytesReserved FieldShortRead next 2 bytesReserved FieldShortRead next 2 bytesNo of RecordsShortRead next 2 bytes
+Following is a market picture structure appearing repeatedly (Max 5 times)Instrument CodeLongRead next 4 bytes for message 2020 / 8 bytes for 2021No of TradesUnsigne
+d LongRead next 4 bytesVolumeLong
+LongRead next 8 bytesValueLong
+LongRead next 8 bytesTrade Value FlagCharRead next 1 byteTrendCharRead next 1 byteSix Lakh FlagCharRead next 1 byteReserved FieldCharRead next 1 byteMarket TypeShortRead next 2 bytesSession NumberShortRead next 2 bytesLTP HourCharRead next 1 byteLTP MinuteCharRead next 1 byteLTP SecondCharRead next 1 byteLTP MillisecondChar[3]Read next 3 bytesReserved FieldChar[2]Read next 2 bytesReserved FieldShortRead next 2 bytesReserved FieldLong
+LongRead next 8 bytesNo of Price pointsShortRead next 2 bytesTimestampLong
+LongRead next 8 bytesClose RateLongRead next 4 bytesLast Trade QtyLong
+LongRead next 8 bytes and save as Qty base
+53
+
+
+LTPLongRead next 4 bytes and save as Rate baseOpen RateLongRead next 2 bytes and apply compression logic with base as LTPPrevious Close RateLongRead next 2 bytes and apply compression logic with base as LTPHigh RateLongRead next 2 bytes and apply compression logic with base as LTPLow RateLongRead next 2 bytes and apply compression logic with base as LTPReserved FieldLongRead next 2 bytes and apply compression logic with base as LTPIndicative Equilibrium
+PriceLongRead next 2 bytes and apply compression logic with base as LTPIndicative Equilibrium
+QtyLong
+LongRead next 2 bytes and apply compression logic with base as LTQTotal Bid QtyLong
+LongRead next 2 bytes and apply compression logic with base as LTQTotal Offer QtyLong
+LongRead next 2 bytes and apply compression logic with base as LTQLower Circuit LimitLongRead next 2 bytes and apply compression logic with base as LTPUpper Circuit LimitLongRead next 2 bytes and apply compression logic with base as LTPWeighted AverageLongRead next 2 bytes and apply compression logic with base as LTP
+Following buy sub-structure will repeat number of times as specified in the "No. of Price points" field
+above or the buy sub structure will terminate if the value 32766 encountered.Best Bid RateLongRead next 2 bytes and apply compression logic with base as LTP.
+For level 2 base is 1st level and so onTotal Bid QtyLong
+LongRead next 2 bytes and apply compression logic with base as LTQ.
+For level 2 base is 1st level and so onNo. of	Bid at the
+price pointsUnsigne
+d LongRead next 2 bytes and apply compression logic with base as LTQ.
+For level 2 base is 1st level and so onImplied Buy QuantityLong
+LongRead next 2 bytes and apply compression logic with base as LTQ.
+For level 2 base is 1st level and so onReserved FieldLongRead next 2 bytes and apply compression logic with base as LTQ.
+For level 2 base is 1st level and so on
+Following sell sub-structure will repeat number of times as specified in the "No. of Price points" field
+above or the sell sub structure will terminate if the value	-32766 encountered.Best Offer RateLongRead next 2 bytes and apply compression logic with base as LTP.
+For level 2 base is 1st level and so onTotal Offer QtyLong
+LongRead next 2 bytes and apply compression logic with base as LTQ.
+For level 2 base is 1st level and so onNo. of Ask at the price
+pointUnsigne
+d LongRead next 2 bytes and apply compression logic with base as LTQ.
+For level 2 base is 1st level and so onImplied Sell QuantityLong
+LongRead next 2 bytes and apply compression logic with base as LTQ.
+For level 2 base is 1st level and so onReserved FieldLongRead next 2 bytes and apply compression logic with base as LTQ.
+For level 2 base is 1st level and so on
+
+
+54
+
+6 Appendix
+6.1 Index Code Mapping Table
+
+and Index Name of all Indices disseminated real time by BSE. This file is made available on BSE website
+and extranet for download by EOD. For more details related file and format, kindly refer circular number 20250411-7 dated 11th April 2025
+
+6.2 Product (Market Segment) Identifier in Master Files
+The following table gives the master file names and different fields in each file which provides information about the product ID.
+
+SegmentFile nameField name and PositionEquitySCRIP_ddmmyy.TXTName: Partition ID and Product ID
+Position :5Equity DerivativesEQD_COddmmyy.csv,
+EQD_SPD_COddmmyy.csvName: Product ID
+Position: 29Currency DerivativesBFX_COddmmyy.csv,
+BFX_SPD_COddmmyy.csvName: Product ID
+Position: 29Commodities DerivativesBCX_COddmmyy.csvName: Product ID
+Position: 29
+
+6.3 Price Precision Table
+
+SegmentPrice PrecisionDescriptionEquity2 decimalsThe value needs to be divided
+with 100.Equity Derivatives2 decimalsThe value needs to be divided
+with 100.Currency Derivatives4 decimalsThe value needs to be divided
+with 10000Commodities Derivatives2 decimalsThe value needs to be divided
+with 100.
+
+
+7 Change log.
+This document has been through the following iterations:
+
+7.1 Changes compared to NFCAST with IML
+This section is meant for application developers who are already using the NFCAST data via IML and want to know the incremental changes that need to be done in their application to read Direct NFCAST.
+
+55
+
+The section gives you details of changes and the section to refer to in the document without going through the entire document.
+
+Sr.
+No.DescriptionNFCAST through IMLDirect NFCAST1.Reading ModeIn IML mostly the UDP is received by broadcast mode. The Receiver application reads data from socket in broadcast modeIn BSE Direct NFCAST mode the broadcast will be received in multicast mode. Thus, the change is required at receiving application end to read in multicast mode.2.Packet HeaderIn broadcast via IML, every broadcast packet has a 8 bytes header consisting of:
+- 4 bytes for slot no.
+- 4 bytes for message lengthIn BSE Direct NFCAST mode, the member application should read 2000 bytes of data in each read call. The first 4 byte will always be the message type.3.SwappingIn broadcast via IML, the packet is read directly in little endian format.In BSE Direct NFCAST mode, each packet needs to be swapped from big endian format to little endian format.4.CompressionThere is no decompression required by member application for any messageThe member application needs to decompress the following messages only as per the decompression logic Specified in Decompression section.
+-	Market picture Message (2020,
+2021, 2033).`5.Market Picture message [2021]
+
+(Applicable for Spread contracts in derivatives segment)There was no market picture message [2021] defined in IML API however market picture message [2021] was sent from exchange to IML and IML application used to convert to market picture message to 2020 format and forward to member application.
+
+The scrip code field in message 2021 is 8 bytes field and contains 17-digit contract tokens applicable for spread contracts. The IML application converts the 8 bytes scrip code to 4 bytes scrip code based on mapping provided in contract master file.In BSE Direct NFCAST, the market picture 2020 and 2021 will be sent independently to member application.
+The member application must read message 2021 with 8 bytes scrip code field. The member application can either convert the 8 bytes scrip code to 4 bytes as per mapping provided in contract master file or it can continue to use the 8 bytes scrip code in their application.6.Session Change
+Broadcast (2002)The session broadcast message is
+sent product wise from exchange toThere will not be any filters applied
+so member application will receive
+56
+
+
+Product state change messageIML. The IML application however forwards only first 36 product wise messages.session broadcast messages for all the products. It can be in the range of 100 to 200 messages.
+Each product wise message can be considered as message for that product only ot it Can be treated at session change at market level with first product message as well ( as it is done currently)7.Test Product Session change broadcast (2002)Exchange hosts some test products and instruments for internal testing, and they are not published in master files. The session change broadcast message for these products are sent every day in the morning before the start of the normal market. Such messages are received by IML but are not forwarded to member
+applicationThe session broadcast for test products will also be sent to the member applications. The member application must ignore the session broadcast message for these test products.
+
+The test products defined as of now are 11,149,150,829,830, 352 to 366.
+
+
+7.2 Changes compared to version 1
+
+Sr.
+No.SectionDescription1.4.2.3 Market Picture
+Broadcast [2020 and 2021]Reserved Field 10 renamed as Block Deal Reference Price.2.4.2.7 Index Change Message [2011 and 2012]In this message, index values are disseminated via 2011 and 2012 messages. In these messages, under "Previous Index Close" field, currently previous close value of index is disseminated, and once continuous trading session is over, in the same field, today's close price of index is disseminated. Now, going ahead, indicative close value of S&P BSE SENSEX and S&P BSE BANKEX indices shall be disseminated in the last 30 minutes of trading hours in Equity segment (between 3:00 - 3:30pm).
+
+Additionally, a Reserved Field 10 shall be renamed as "Index Close Value Indicator" in which new values are defined to give indicator about previous index close, today's indicative close value and today's index close values in "Previous Index close" field.
+
+Direct NFCAST market data stream version v2.0 has been
+uploaded on www.bseindia.com/nta.aspx. Kindly refer the same for more details.
+57
+
+
+
+7.3 Changes compared to version 2
+
+Sr.
+No.SectionDescription
+1.
+4.6 Shortage Auction Session Change Message [2003]
+The message was published along with section 4.5 Product State change message. The message is now segregated as sperate message under this section.
+2
+4.13 Limit Price Protection Range
+A new message is introduced to disseminate the dynamic range for acceptance of limit orders. The range is based on the LTP or theoretical price and keeps changing with the change in LTP or theoretical prices. This is currently applicable for equity derivatives segment.
+
+The new message will be disseminated on a different multicast stream. Thus, the member applications desirous of using this message will need to subscribe to a different multicast channel to receive this message.
+
+The multicast IP and Port of Simulation market for LPP range message will be
+
+IP: 226.1.3.61
+Port: 11461
+3.
+4.18 Implied Volatility
+A new message will be sent for the Derivatives instrument available for trading in the Exchange. The broadcast will be sent for traded contracts at the specific interval throughout the day.
+
+7.4 Changes compared to version 3
+
+Sr.
+No.SectionDescription1.4.14 Call AuctionFor SPOS and Relisting securities operating in call auction mode, a new message will be sent to communicate the quantity cancelled during the auction period.
+
+The message will communicate the cancelled quantity and no. of orders involved in the cancelled count. The cancelled quantity count will be cumulative count over the call auction order entry period.
+58
+
+
+
+
+7.5 Changes compared to version 4
+
+Sr.
+No.SectionDescription1.4.8 Market Picture Broadcast [2020 and 2021]1. Data Type of following fields has been changed.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+2. Reserved Field 11 added in Market Picture message of 8 Bytes.
+
+3. Reserved Field 12 and Reserved Field 13 added for buy and sell side of 4 byte each. This will repeat number of times as specified in the "No. of Price points" field.24.9 Auction Market Picture Broadcast [ 2017]
+Data Type of following fields has been changed.FieldCurrent DatatypeNew DatatypeAuction QtyLongLong Long
+59
+
+
+Cumulative QtyLongLong LongOffer QtyLongLong Long34.14 Call Auction cancelled quantity message [2035]Data Type of field Cancelled Buy Qty and Cancelled Sell Qty changed from Long to Long Long.44.16 Open Interest Message [2015]Data Type of field Open Interest Quantity changed from Long to Long Long.54.19 Implied Volatility [2028]Field description updated66.1 Index Code mapping tableTable removed and description updated to refer file for Index
+Code & Index name for all indices disseminated real time.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+60
+
+
+
+
+
+

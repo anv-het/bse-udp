@@ -2,7 +2,30 @@
 
 Complete production-ready pipeline for BSE (Bombay Stock Exchange) NFCAST market data.
 
-## 🚀 Quick Start
+## 🚀 Quick Start - Unified Server (RECOMMENDED) ✅
+
+**NEW: Single executable for ALL message types (2020, 2021, 2011, 2012, 2017)!**
+
+```powershell
+# Build unified server (one-time)
+go build -o hft-unified.exe ./cmd/hft-unified
+
+# Run for 10 seconds - captures EVERYTHING!
+.\hft-unified.exe -duration 10s
+```
+
+**What you get:**
+- ✅ All 5 message types in one executable
+- ✅ Unified statistics display
+- ✅ Config-based enable/disable
+- ✅ Auto token loading
+- ✅ Live packet monitoring
+
+📖 **See [UNIFIED_SERVER_SUCCESS.md](UNIFIED_SERVER_SUCCESS.md) for complete guide**
+
+---
+
+## 🛠️ Alternative: Run Individual Components
 
 ### Option 1: Run Directly (Like Python - No Build Needed!)
 ```powershell
