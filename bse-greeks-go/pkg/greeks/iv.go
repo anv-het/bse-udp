@@ -19,11 +19,11 @@ type IVConfig struct {
 // DefaultIVConfig returns sensible defaults for IV calculation
 func DefaultIVConfig() IVConfig {
 	return IVConfig{
-		InitialGuess:  0.20,   // 20% volatility
-		MaxIterations: 100,    // Enough for most cases
-		Tolerance:     0.0001, // ₹0.01 accuracy
-		MinVol:        0.01,   // 1% floor
-		MaxVol:        3.00,   // 300% cap
+		InitialGuess:  0.10, // 10% volatility (better for short-term options)
+		MaxIterations: 100,  // Enough for most cases
+		Tolerance:     0.01, // ₹0.01 accuracy (tighter tolerance)
+		MinVol:        0.01, // 1% floor
+		MaxVol:        2.00, // 200% cap (more reasonable)
 	}
 }
 
@@ -79,19 +79,23 @@ func (c *Calculator) ImpliedVolatility(
 			return sigma, nil
 		}
 
-		// Calculate Vega for Newton-Raphson step
-		greeksResult := c.Calculate(optionType, spotPrice, strikePrice, expiryDate, sigma)
-		vega := greeksResult.Vega
+		// Calculate Vega directly (faster than full Greeks calculation)
+		sqrtT := math.Sqrt(timeToExpiry)
+		d1 := (math.Log(spotPrice/strikePrice) +
+			(c.riskFreeRate+0.5*sigma*sigma)*timeToExpiry) / (sigma * sqrtT)
 
-		// Vega is per 1% change, convert to per unit change
-		vegaUnit := vega * 0.01 * spotPrice
+		// Vega = S * N'(d1) * sqrt(T)
+		// N'(d1) is the standard normal PDF
+		nd1 := math.Exp(-0.5*d1*d1) / math.Sqrt(2*math.Pi)
+		vega := spotPrice * nd1 * sqrtT
 
-		if math.Abs(vegaUnit) < 1e-10 {
+		if vega < 1e-10 {
 			return 0, errors.New("vega too small, cannot converge")
 		}
 
 		// Newton-Raphson update: σ_new = σ_old - (BS_Price - Market_Price) / Vega
-		sigma = sigma - (diff / vegaUnit)
+		// Note: Vega here is the actual mathematical vega (change per unit vol change)
+		sigma = sigma - (diff / vega)
 
 		// Apply bounds
 		if sigma < config.MinVol {

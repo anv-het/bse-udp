@@ -37,3 +37,6 @@ bse-go-hft/tests/data/
 
 bse-go/data/
 bse-go-hft/data/
+
+massage_analysis_result/
+*data/

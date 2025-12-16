@@ -86,8 +86,11 @@ func (c *Calculator) Calculate(
 	}
 
 	// Vega (same for calls and puts)
+	// Vega = S * N'(d1) * sqrt(T) / 100
+	// Convention: quoted per 1% (0.01) change in volatility
+	// So if vol changes from 15% to 16%, option price changes by Vega amount
 	if t > 0 {
-		greeks.Vega = spotPrice * NormalPDF(d1) * math.Sqrt(t) / 100
+		greeks.Vega = spotPrice * NormalPDF(d1) * math.Sqrt(t) / 100.0
 	}
 
 	// Rho
@@ -143,8 +146,8 @@ func (c *Calculator) callTheta(
 	term1 := -(spotPrice * NormalPDF(d1) * volatility) / (2 * math.Sqrt(t))
 	term2 := c.riskFreeRate * strikePrice * math.Exp(-c.riskFreeRate*t) * NormalCDF(d2)
 
-	// Return daily theta (divide by 365)
-	return (term1 - term2) / 365
+	// Return daily theta (divide by 365 calendar days)
+	return (term1 - term2) / 365.0
 }
 
 // putTheta calculates Theta for put options (per day)
@@ -158,8 +161,8 @@ func (c *Calculator) putTheta(
 	term1 := -(spotPrice * NormalPDF(d1) * volatility) / (2 * math.Sqrt(t))
 	term2 := c.riskFreeRate * strikePrice * math.Exp(-c.riskFreeRate*t) * NormalCDF(-d2)
 
-	// Return daily theta (divide by 365)
-	return (term1 + term2) / 365
+	// Return daily theta (divide by 365 calendar days)
+	return (term1 + term2) / 365.0
 }
 
 // expiredDelta returns Delta for expired options
@@ -231,7 +234,7 @@ func (c *Calculator) CalculateWithIV(
 		strikePrice,
 		expiryDate,
 		ivConfig,
-		0.15, // 15% fallback volatility
+		0.10, // 10% fallback volatility (more realistic for short-term options)
 	)
 
 	// If volume is very low, mark as estimated

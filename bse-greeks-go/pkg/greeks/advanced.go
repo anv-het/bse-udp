@@ -62,8 +62,8 @@ func (c *Calculator) calculateVanna(
 	}
 
 	// Vanna = (Vega/S) × (1 - d1/(σ√t))
-	// Note: Vega is per 1% change, so adjust units
-	vegaUnit := vega * 0.01 * spotPrice // Convert to per-unit change
+	// Vega is per 1% change, so adjust to per-unit change for calculation
+	vegaUnit := vega * 100.0 // Convert from per 1% to per unit (0.01)
 	vanna := (vegaUnit / spotPrice) * (1 - d1/(sigma*sqrtT))
 
 	return vanna
